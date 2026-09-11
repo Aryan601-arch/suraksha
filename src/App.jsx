@@ -669,6 +669,14 @@ function calc(product, factor, v) {
   return { rows: [], net: 0 };
 }
 
+// A product's "live NRB rate" field, if it has one — the field name convention
+// (usd_rate / fx_rate) is how the rest of the app finds which form field a
+// fetched rate belongs in, so any future currency-taking product picks this
+// up automatically as long as it follows the same naming convention.
+function nrbRateFieldKey(product) {
+  return product.fields.find((f) => f.key === "usd_rate" || f.key === "fx_rate")?.key;
+}
+
 export default function MobilePreview() {
   const [screen, setScreen] = useState("home");
   const [activeCategory, setActiveCategory] = useState(null);
@@ -753,7 +761,7 @@ export default function MobilePreview() {
     if (selectedProduct.rateStructureType === "usd_base") {
       // Travel plans are all USD-denominated today; pass a different ISO3
       // here if a future product prices in another currency (EUR, GBP, etc.)
-      fetchNrbRate("USD", "usd_rate");
+      fetchNrbRate("USD", nrbRateFieldKey(selectedProduct) || "usd_rate");
     }
   }
 
