@@ -691,10 +691,14 @@ export default function MobilePreview() {
   //   ] }, pagination: {...} }
   //   400 response shape: { status: { code: 400 }, errors: { validation: {...} }, data: { payload: null } }
   //
-  // Generalized to any currency NRB publishes — pass an ISO3 code (defaults to
-  // USD, since that's the only currency our current products are priced in).
+  // Generalized to any currency NRB publishes — pass an ISO3 code. `fieldKey`
+  // is which form field the fetched rate gets written into: travel's plan
+  // uses "usd_rate", marine's invoice conversion uses "fx_rate" — writing to
+  // the wrong one silently leaves the other field's value (often the 1x
+  // NPR-invoice default) in place, so quotes stop converting currency at all
+  // even though the UI shows the correct fetched rate.
   // Uses NRB's SELL rate specifically, not a buy/sell midpoint.
-  async function fetchNrbRate(currencyIso3 = "USD") {
+  async function fetchNrbRate(currencyIso3 = "USD", fieldKey = "usd_rate") {
     setUsdRateInfo({ status: "loading", rate: null, date: null, currency: currencyIso3 });
     try {
       // Query the last 10 days, not just today — NRB doesn't publish a rate
@@ -725,7 +729,7 @@ export default function MobilePreview() {
 
       const sellRate = parseFloat(currencyRate.sell);
       setUsdRateInfo({ status: "success", rate: sellRate, date: latestDay.date, currency: currencyIso3 });
-      setForm((f) => ({ ...f, usd_rate: sellRate }));
+      setForm((f) => ({ ...f, [fieldKey]: sellRate }));
     } catch (e) {
       // Likely a CORS restriction from NRB's server on browser-based requests,
       // or the API being unreachable — either way, fall back to manual entry
@@ -749,7 +753,7 @@ export default function MobilePreview() {
     if (selectedProduct.rateStructureType === "usd_base") {
       // Travel plans are all USD-denominated today; pass a different ISO3
       // here if a future product prices in another currency (EUR, GBP, etc.)
-      fetchNrbRate("USD");
+      fetchNrbRate("USD", "usd_rate");
     }
   }
 
@@ -850,7 +854,7 @@ export default function MobilePreview() {
                       {usdRateInfo.status === "success" && (
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#e9efe9", borderRadius: 8, padding: "10px 12px" }}>
                           <span style={{ fontSize: 13, color: colors.mossDeep, fontWeight: 700 }}>Rs. {usdRateInfo.rate.toFixed(2)} <span style={{ fontWeight: 400, color: colors.slate }}>({usdRateInfo.currency} sell rate, NRB {usdRateInfo.date})</span></span>
-                          <button onClick={() => fetchNrbRate(usdRateInfo.currency)} style={{ background: "none", border: "none", color: colors.moss, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Refresh</button>
+                          <button onClick={() => fetchNrbRate(usdRateInfo.currency, field.key)} style={{ background: "none", border: "none", color: colors.moss, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Refresh</button>
                         </div>
                       )}
                       {usdRateInfo.status === "error" && (
@@ -876,7 +880,7 @@ export default function MobilePreview() {
                                 setForm((f) => ({ ...f, invoice_currency: "NPR", fx_rate: 1, sum_insured: defaultInvoiceByCurrency.NPR }));
                               } else {
                                 setForm((f) => ({ ...f, sum_insured: defaultInvoiceByCurrency[opt.value] }));
-                                fetchNrbRate(opt.value);
+                                fetchNrbRate(opt.value, "fx_rate");
                               }
                             }
                           }}
