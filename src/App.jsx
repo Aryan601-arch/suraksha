@@ -538,6 +538,68 @@ const RATE_TABLES = {
   },
 };
 
+// Claim-side benefit schedule, keyed by product category — separate from
+// RATE_TABLES (which only prices the premium). Currently only populated for
+// personal_accident, straight from the Accident Insurance Directive 2078.
+const COVERAGE_SCHEDULES = {
+  personal_accident: {
+    sourceLabel: "Accident Insurance Directive, 2078 (Beema Samiti)",
+    benefits: [
+      { label: "Accidental death, within 183 days of the accident", detail: "100% of sum insured", source: "Sec. 3" },
+      { label: "Body transport / repatriation", detail: "Flat Rs 10,000", source: "Sec. 4" },
+      { label: "Last rites (funeral) expense", detail: "10% of sum insured or Rs 50,000, whichever is lower — paid on top of the death benefit", source: "Sec. 5" },
+      { label: "Temporary total disability", detail: "5% of sum insured or Rs 20,000/month, whichever is lower, for up to 6 months", source: "Sec. 8" },
+      { label: "Medical treatment", detail: "Up to Rs 100,000 on top of the sum insured, against bills", source: "Sec. 9" },
+    ],
+    permanentTotal: {
+      title: "Permanent total disability — % of sum insured",
+      source: "Sec. 6",
+      rows: [
+        { label: "Total, irrecoverable paralysis (spinal injury)", pct: 100 },
+        { label: "Loss of use of one full arm (from wrist) or one full leg (from ankle)", pct: 100 },
+        { label: "Total loss of sight, both eyes", pct: 100 },
+        { label: "Total loss of hearing, both ears", pct: 100 },
+        { label: "Total loss of speech", pct: 100 },
+        { label: "Total loss of sight, one eye", pct: 50 },
+        { label: "Total loss of hearing, one ear", pct: 50 },
+      ],
+    },
+    permanentPartial: {
+      title: "Permanent partial disability — % of sum insured",
+      source: "Sec. 7",
+      rows: [
+        { label: "Loss of use of arm below elbow, or leg below knee", pct: 50 },
+        { label: "Loss of use of arm below wrist, or leg below ankle", pct: 50 },
+        { label: "Loss of thumb or big toe", pct: 20 },
+        { label: "Memory loss caused by the accident", pct: 20 },
+        { label: "Loss of use of any other finger or toe", pct: 10 },
+        { label: "Any other permanent bodily impairment", pct: "Proportionate" },
+      ],
+    },
+    riders: {
+      title: "Optional extra-premium riders",
+      source: "Sec. 19",
+      rows: [
+        { label: "Mountaineering", detail: "+0.75% of sum insured" },
+        { label: "Rally/wheel racing, horse racing, bungee jumping, paragliding, motorcycle racing, polo, hunting, scuba diving, sharp-shooting", detail: "+0.5% of sum insured" },
+      ],
+    },
+    exclusions: {
+      title: "Not covered",
+      source: "Sec. 10-12",
+      rows: [
+        "Self-inflicted injury, suicide or attempted suicide",
+        "Under the influence of alcohol or drugs",
+        "Unauthorized flying, other than as a fare-paying passenger on a licensed airline",
+        "Adventure sports listed above, unless separately covered with the extra premium",
+        "Insanity or mental disorder",
+        "War, riot, invasion, or radioactive/chemical/biological weapons",
+      ],
+    },
+    minClaim: 2500, // Sec. 22(1) — no claim below this amount is payable under the policy
+  },
+};
+
 const r = (n) => Math.round(n * 100) / 100;
 
 function calc(product, factor, v) {
@@ -718,6 +780,7 @@ export default function MobilePreview() {
   const [docs, setDocs] = useState({});
   const [paymentStatus, setPaymentStatus] = useState(null); // null | "processing" | "success"
   const [usdRateInfo, setUsdRateInfo] = useState({ status: "idle", rate: null, date: null, currency: null });
+  const [coverageOpen, setCoverageOpen] = useState(null); // null, or one of: "disability", "riders", "exclusions"
 
   const visibleProducts = activeCategory ? PRODUCTS.filter((p) => p.category === activeCategory) : PRODUCTS;
 
@@ -788,6 +851,7 @@ export default function MobilePreview() {
     setQuote(null);
     setDocs({});
     setPaymentStatus(null);
+    setCoverageOpen(null);
     setScreen("product");
     if (selectedProduct.rateStructureType === "usd_base") {
       // Travel plans are all USD-denominated today; pass a different ISO3
@@ -880,6 +944,85 @@ export default function MobilePreview() {
 
           {screen === "product" && selectedProduct && (
             <>
+              {COVERAGE_SCHEDULES[selectedProduct.category] && (() => {
+                const cov = COVERAGE_SCHEDULES[selectedProduct.category];
+                const sectionToggle = (key, title, source) => (
+                  <button
+                    onClick={() => setCoverageOpen(coverageOpen === key ? null : key)}
+                    style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", background: "none", border: "none", padding: "8px 0", cursor: "pointer", textAlign: "left" }}
+                  >
+                    <span style={{ fontSize: 12, fontWeight: 700, color: colors.ink }}>{title} <span style={{ fontWeight: 400, color: colors.slate }}>({source})</span></span>
+                    <ChevronRight size={14} color={colors.slate} style={{ transform: coverageOpen === key ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} />
+                  </button>
+                );
+                return (
+                  <div style={{ marginBottom: 16, background: colors.card, border: `1px solid ${colors.line}`, borderRadius: 10, padding: "12px 14px" }}>
+                    <p style={{ fontSize: 11, fontWeight: 700, color: colors.moss, textTransform: "uppercase", letterSpacing: 0.4, margin: "0 0 8px" }}>
+                      What's covered — {cov.sourceLabel}
+                    </p>
+                    {cov.benefits.map((b, i) => (
+                      <div key={i} style={{ marginBottom: 8 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: colors.ink, fontWeight: 600 }}>
+                          <span>{b.label}</span>
+                          <span style={{ color: colors.slate, fontWeight: 400 }}>{b.source}</span>
+                        </div>
+                        <div style={{ fontSize: 12, color: colors.slate }}>{b.detail}</div>
+                      </div>
+                    ))}
+                    <p style={{ fontSize: 11.5, color: colors.slate, margin: "6px 0 4px" }}>
+                      Minimum claim: Rs {cov.minClaim.toLocaleString()} — smaller claims aren't payable under this policy (Sec. 22).
+                    </p>
+
+                    <div style={{ borderTop: `1px solid ${colors.line}`, marginTop: 6 }}>
+                      {sectionToggle("disability", "Disability payout schedule", `${cov.permanentTotal.source} / ${cov.permanentPartial.source}`)}
+                      {coverageOpen === "disability" && (
+                        <div style={{ paddingBottom: 8 }}>
+                          <p style={{ fontSize: 11, fontWeight: 700, color: colors.ink, margin: "4px 0" }}>{cov.permanentTotal.title}</p>
+                          {cov.permanentTotal.rows.map((row, i) => (
+                            <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: colors.slate, padding: "2px 0" }}>
+                              <span style={{ flex: 1, paddingRight: 8 }}>{row.label}</span>
+                              <span style={{ fontWeight: 700, color: colors.ink }}>{row.pct}%</span>
+                            </div>
+                          ))}
+                          <p style={{ fontSize: 11, fontWeight: 700, color: colors.ink, margin: "8px 0 4px" }}>{cov.permanentPartial.title}</p>
+                          {cov.permanentPartial.rows.map((row, i) => (
+                            <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: colors.slate, padding: "2px 0" }}>
+                              <span style={{ flex: 1, paddingRight: 8 }}>{row.label}</span>
+                              <span style={{ fontWeight: 700, color: colors.ink }}>{typeof row.pct === "number" ? `${row.pct}%` : row.pct}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ borderTop: `1px solid ${colors.line}` }}>
+                      {sectionToggle("riders", cov.riders.title, cov.riders.source)}
+                      {coverageOpen === "riders" && (
+                        <div style={{ paddingBottom: 8 }}>
+                          {cov.riders.rows.map((row, i) => (
+                            <div key={i} style={{ marginBottom: 6 }}>
+                              <div style={{ fontSize: 12, color: colors.ink, fontWeight: 600 }}>{row.label}</div>
+                              <div style={{ fontSize: 11.5, color: colors.slate }}>{row.detail}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ borderTop: `1px solid ${colors.line}` }}>
+                      {sectionToggle("exclusions", cov.exclusions.title, cov.exclusions.source)}
+                      {coverageOpen === "exclusions" && (
+                        <ul style={{ margin: "4px 0 8px", paddingLeft: 18 }}>
+                          {cov.exclusions.rows.map((line, i) => (
+                            <li key={i} style={{ fontSize: 12, color: colors.slate, marginBottom: 3 }}>{line}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
               {selectedProduct.fields.map((field) => {
                 if (field.key === "fx_rate" && form.invoice_currency === "NPR") return null; // no FX conversion needed for a NPR invoice
                 return (
