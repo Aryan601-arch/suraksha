@@ -436,14 +436,27 @@ const RATE_TABLES = {
     },
     stamp_duty_flat: 50,
   },
-  // Direct-business discount corrected to 5% per the Personal Accident
-  // Insurance Directive 2078 (first amendment, 2081) — capped at the agent's
-  // commission amount if that's lower, and explicitly excludes the
-  // riot/terrorism portion of the premium (already modeled: the discount
-  // below applies only to normal_rate_per_mille, not rsmdst_rate_per_mille).
-  // Still no real base per-mille rate — that would be in the original 2078
-  // directive, not this amendment.
-  "pa-1": { normal_rate_per_mille: 2.5, rsmdst_rate_per_mille: 0.5, direct_business_discount_pct: 5, stamp_duty_flat: 20, apply_vat: false },
+  // Group Personal Accident Insurance — Accident Insurance Directive 2078
+  // (दुर्घटना बीमा निर्देशिका, २०७८), Beema Samiti, effective 2078.08.01 (17 Nov 2021).
+  // Section 16(1): minimum per-mille rate tiered by group size (rate applies
+  // per person, on that person's own sum insured).
+  "pa-1": {
+    group_tiers: [
+      { max_persons: 25, rate_per_mille: 2.0 }, // (क) 2–25 persons: Rs 2 per Rs 1,000
+      { max_persons: 100, rate_per_mille: 1.75 }, // (ख) 26–100 persons: Rs 1.75 per Rs 1,000
+      { max_persons: Infinity, rate_per_mille: 1.5 }, // (ग) 101+ persons: Rs 1.50 per Rs 1,000
+    ],
+    // Section 20(2): riot/strike/malicious-damage/terrorism (RSMDST) risk group
+    // rate is a flat 15 paisa per Rs 1,000 sum insured per person, across all products.
+    rsmdst_rate_per_mille: 0.15,
+    // Section 15(2) proviso: direct (no-agent) sales may discount up to 5%,
+    // explicitly excluding the RSMDST premium — modeled below by applying the
+    // discount only to the normal-rate portion, not rsmdst_rate_per_mille.
+    direct_business_discount_pct: 5,
+    min_premium_flat: 100, // Section 17(1): no policy may charge less than Rs 100 total premium
+    stamp_duty_flat: 20, // still unverified against this directive — kept as prior placeholder
+    apply_vat: false,
+  },
 
   // Everything below is an invented placeholder rate — none of these came from
   // a real tariff document or insurer filing. They exist so the product is
@@ -452,7 +465,18 @@ const RATE_TABLES = {
   "group-medical-1": { normal_rate_per_mille: 10, rsmdst_rate_per_mille: 0, direct_business_discount_pct: 5, stamp_duty_flat: 40, apply_vat: false },
   "auto-plus-1": { normal_rate_per_mille: 8, rsmdst_rate_per_mille: 0, direct_business_discount_pct: 10, stamp_duty_flat: 50, apply_vat: true },
   "trekkers-1": { normal_rate_per_mille: 6, rsmdst_rate_per_mille: 0, direct_business_discount_pct: 5, stamp_duty_flat: 50, apply_vat: true },
-  "pa-individual-1": { normal_rate_per_mille: 2.5, rsmdst_rate_per_mille: 0.5, direct_business_discount_pct: 5, stamp_duty_flat: 20, apply_vat: false },
+  // Personal Accident Insurance (individual) — same Directive 2078, Section 15(1):
+  // minimum premium Rs 2 per Rs 1,000 sum insured (flat — not group-size tiered,
+  // since Section 16's tiers only govern the group product). Section 15(3) also
+  // bars increasing/decreasing the sum insured mid-term on an individual policy.
+  "pa-individual-1": {
+    normal_rate_per_mille: 2.0,
+    rsmdst_rate_per_mille: 0.15, // Section 20(2), same as pa-1
+    direct_business_discount_pct: 5, // Section 15(2) proviso
+    min_premium_flat: 100, // Section 17(1)
+    stamp_duty_flat: 20,
+    apply_vat: false,
+  },
   "property-commercial-1": { normal_rate_per_mille: 2.0, rsmdst_rate_per_mille: 0.3, direct_business_discount_pct: 5, stamp_duty_flat: 100, apply_vat: true },
   // Marine Transit Insurance — Marine Insurance Rate Directive 2065 (B.S.),
   // Annex-6: "Minimum Insurance Premium Rate for Marine Insurance" (per hundred
@@ -651,19 +675,26 @@ function calc(product, factor, v) {
     const count = Number(v.number_of_persons ?? 1);
     const totalSI = perPerson * count;
     const dbPct = v.direct_business ? rt.direct_business_discount_pct : 0;
-    const effRate = rt.normal_rate_per_mille * factor * (1 - dbPct / 100);
+    // Group-size-tiered products (e.g. pa-1) pick their base rate off the
+    // group's headcount instead of a single fixed normal_rate_per_mille.
+    const tier = rt.group_tiers?.find((t) => count <= t.max_persons);
+    const baseRatePerMille = tier ? tier.rate_per_mille : rt.normal_rate_per_mille;
+    const effRate = baseRatePerMille * factor * (1 - dbPct / 100);
     const normal = (totalSI * effRate) / 1000;
     const rsmdst = (totalSI * rt.rsmdst_rate_per_mille) / 1000;
     const subtotal = normal + rsmdst;
     const vat = rt.apply_vat ? subtotal * 0.13 : 0;
+    const preFloorNet = subtotal + vat + rt.stamp_duty_flat;
+    const net = rt.min_premium_flat ? Math.max(preFloorNet, rt.min_premium_flat) : preFloorNet;
     return {
       rows: [
-        { label: "Normal premium", value: r(normal) },
+        { label: tier ? `Normal premium (${count} ${count === 1 ? "person" : "persons"} tier: Rs ${tier.rate_per_mille}/1,000)` : "Normal premium", value: r(normal) },
         { label: "RSMDST premium", value: r(rsmdst) },
         ...(rt.apply_vat ? [{ label: "VAT (13%)", value: r(vat) }] : []),
         { label: "Stamp duty", value: rt.stamp_duty_flat },
+        ...(net > r(preFloorNet) ? [{ label: `Minimum premium floor (Rs ${rt.min_premium_flat})`, value: r(net - preFloorNet) }] : []),
       ],
-      net: r(subtotal + vat + rt.stamp_duty_flat),
+      net: r(net),
     };
   }
   return { rows: [], net: 0 };
