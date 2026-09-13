@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Car, HeartPulse, Plane, ShieldCheck, Home, ChevronRight, Check, ArrowLeft, Wheat, Ship, PlaneTakeoff, Briefcase } from "lucide-react";
+import { jsPDF } from "jspdf";
 
 const colors = {
   ink: "#1c2b28",
@@ -10,6 +11,13 @@ const colors = {
   line: "#ddd6c4",
   card: "#ffffff",
 };
+
+// #rrggbb -> [r, g, b] ints, for jsPDF's setTextColor/setDrawColor (which take
+// 0-255 components, not hex) — keeps the PDF's palette in sync with `colors`.
+function hexRgb(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
 
 const CATEGORIES = [
   { slug: "motor", label: "Motor", Icon: Car },
@@ -979,7 +987,9 @@ export default function MobilePreview() {
   const [form, setForm] = useState({});
   const [quote, setQuote] = useState(null);
   const [docs, setDocs] = useState({});
+  const [insuredName, setInsuredName] = useState("");
   const [paymentStatus, setPaymentStatus] = useState(null); // null | "processing" | "success"
+  const [policyNumber, setPolicyNumber] = useState(null);
   const [usdRateInfo, setUsdRateInfo] = useState({ status: "idle", rate: null, date: null, currency: null });
   const [coverageOpen, setCoverageOpen] = useState(null); // null, or one of: "disability", "riders", "exclusions"
 
@@ -1051,7 +1061,9 @@ export default function MobilePreview() {
     setForm(selectedProduct.defaults);
     setQuote(null);
     setDocs({});
+    setInsuredName("");
     setPaymentStatus(null);
+    setPolicyNumber(null);
     setCoverageOpen(null);
     setScreen("product");
     if (selectedProduct.rateStructureType === "usd_base") {
@@ -1063,7 +1075,138 @@ export default function MobilePreview() {
 
   function pay(gateway) {
     setPaymentStatus("processing");
-    setTimeout(() => setPaymentStatus("success"), 1000);
+    setTimeout(() => {
+      const productCode = selectedProduct.id.replace(/[^a-z0-9]/gi, "").toUpperCase().slice(0, 6);
+      const year = new Date().getFullYear();
+      const serial = String(Math.floor(Math.random() * 90000) + 10000);
+      setPolicyNumber(`SICL-${productCode}-${year}-${serial}`);
+      setPaymentStatus("success");
+    }, 1000);
+  }
+
+  // Renders a field's stored value the same way it's shown on the quote form —
+  // resolving an enum's stored `value` back to its display `label` — so the
+  // PDF's "Cover details" section reads the same as what the customer picked,
+  // not the raw internal key (e.g. "worldwide_ex_us").
+  function formatFieldValue(field, value) {
+    if (field.type === "enum") return field.options.find((o) => o.value === value)?.label ?? value;
+    if (field.type === "boolean") return value ? "Yes" : "No";
+    if (field.type === "number") return Number(value).toLocaleString();
+    return value;
+  }
+
+  // Builds a cover-note PDF entirely client-side (jsPDF) — there's no backend
+  // to generate or store this on, so this is generated fresh in the browser
+  // from the same product/form/quote state already on screen, and handed to
+  // the customer as an immediate download.
+  function downloadPolicyPdf() {
+    const doc = new jsPDF({ unit: "mm", format: "a4" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const marginX = 18;
+    let y = 20;
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(18);
+    doc.setTextColor(...hexRgb(colors.mossDeep));
+    doc.text("Suraksha", marginX, y);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(...hexRgb(colors.slate));
+    doc.text("Insurance marketplace, Nepal", marginX, (y += 6));
+
+    doc.setDrawColor(...hexRgb(colors.line));
+    doc.line(marginX, (y += 4), pageWidth - marginX, y);
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.setTextColor(...hexRgb(colors.ink));
+    doc.text("Cover Note / Policy Schedule", marginX, (y += 10));
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10.5);
+    doc.setTextColor(...hexRgb(colors.ink));
+    const headerRows = [
+      ["Policy number", policyNumber || "—"],
+      ["Issue date", new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" })],
+      ["Insurer", selectedInsurer?.name || "—"],
+      ["Product", selectedProduct?.name || "—"],
+      ["Policyholder", insuredName || "—"],
+    ];
+    y += 8;
+    headerRows.forEach(([label, value]) => {
+      doc.setFont("helvetica", "bold");
+      doc.text(`${label}:`, marginX, y);
+      doc.setFont("helvetica", "normal");
+      doc.text(String(value), marginX + 38, y);
+      y += 6;
+    });
+
+    y += 2;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11.5);
+    doc.setTextColor(...hexRgb(colors.moss));
+    doc.text("Cover details", marginX, (y += 6));
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(...hexRgb(colors.ink));
+    selectedProduct.fields.forEach((field) => {
+      if (form[field.key] === undefined) return;
+      if ((field.key === "fx_rate" && form.invoice_currency === "NPR") || (field.key === "cover_type" && form.plan === "saarc")) return;
+      doc.text(`${field.label}: ${formatFieldValue(field, form[field.key])}`, marginX, (y += 6));
+    });
+
+    y += 2;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11.5);
+    doc.setTextColor(...hexRgb(colors.moss));
+    doc.text("Premium breakdown", marginX, (y += 6));
+    doc.setFontSize(10);
+    (quote?.rows || []).forEach((row) => {
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...hexRgb(colors.ink));
+      doc.text(row.label, marginX, (y += 6));
+      doc.text(`Rs. ${Number(row.value).toLocaleString()}`, pageWidth - marginX, y, { align: "right" });
+    });
+    doc.setDrawColor(...hexRgb(colors.line));
+    doc.line(marginX, (y += 2), pageWidth - marginX, y);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.text("Net premium", marginX, (y += 7));
+    doc.text(`Rs. ${quote?.net.toLocaleString() ?? "—"}`, pageWidth - marginX, y, { align: "right" });
+
+    const cov = COVERAGE_SCHEDULES[selectedProduct.coverageKey || selectedProduct.category];
+    if (cov) {
+      y += 4;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11.5);
+      doc.setTextColor(...hexRgb(colors.moss));
+      const wrappedHeading = doc.splitTextToSize(`What's covered — ${cov.sourceLabel}`, pageWidth - marginX * 2);
+      doc.text(wrappedHeading, marginX, (y += 6));
+      y += (wrappedHeading.length - 1) * 5;
+      doc.setFontSize(9.5);
+      cov.benefits.forEach((b) => {
+        if (y > 260) { doc.addPage(); y = 20; }
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...hexRgb(colors.ink));
+        const wrappedLabel = doc.splitTextToSize(b.label, pageWidth - marginX * 2);
+        doc.text(wrappedLabel, marginX, (y += 5));
+        y += (wrappedLabel.length - 1) * 4.5;
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(...hexRgb(colors.slate));
+        const wrappedDetail = doc.splitTextToSize(b.detail, pageWidth - marginX * 2);
+        doc.text(wrappedDetail, marginX, (y += 4.5));
+        y += (wrappedDetail.length - 1) * 4.5;
+      });
+    }
+
+    if (y > 260) { doc.addPage(); y = 20; }
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(8.5);
+    doc.setTextColor(...hexRgb(colors.slate));
+    const disclaimer = "This cover note is generated by the Suraksha app at the moment of payment and confirms the cover selected and premium paid. Final policy issuance, endorsement, and claims remain subject to the insurer's own acceptance, underwriting, and terms.";
+    doc.text(doc.splitTextToSize(disclaimer, pageWidth - marginX * 2), marginX, 280);
+
+    doc.save(`${policyNumber || "suraksha-policy"}.pdf`);
   }
 
   return (
@@ -1317,6 +1460,10 @@ export default function MobilePreview() {
           {screen === "kyc" && selectedProduct && (
             <>
               <p style={{ fontSize: 13, color: colors.slate, margin: "0 0 14px" }}>Upload these documents before you can pay.</p>
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: colors.slate, display: "block", marginBottom: 4 }}>Full name (as it appears on your documents)</label>
+                <input type="text" value={insuredName} onChange={(e) => setInsuredName(e.target.value)} style={inputStyle} placeholder="e.g. Aarav Sharma" />
+              </div>
               <div style={{ display: "flex", flexDirection: "column" }}>
                 {selectedProduct.docsRequired.map((doc) => (
                   <div key={doc.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${colors.line}` }}>
@@ -1337,8 +1484,8 @@ export default function MobilePreview() {
                 ))}
               </div>
               <button
-                style={{ ...buttonStyle, marginTop: 16, opacity: selectedProduct.docsRequired.every((d) => docs[d.key]) ? 1 : 0.5 }}
-                disabled={!selectedProduct.docsRequired.every((d) => docs[d.key])}
+                style={{ ...buttonStyle, marginTop: 16, opacity: selectedProduct.docsRequired.every((d) => docs[d.key]) && insuredName.trim() ? 1 : 0.5 }}
+                disabled={!selectedProduct.docsRequired.every((d) => docs[d.key]) || !insuredName.trim()}
                 onClick={() => setScreen("payment")}
               >
                 Submit for review
@@ -1355,7 +1502,8 @@ export default function MobilePreview() {
                   </div>
                   <p style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>Payment received</p>
                   <p style={{ fontSize: 13, color: colors.slate, marginBottom: 4 }}>Rs. {quote?.net.toLocaleString()} paid for {selectedProduct?.name}</p>
-                  <p style={{ fontSize: 12, color: colors.slate }}>Policy number: SICL-MC-2026-00417</p>
+                  <p style={{ fontSize: 12, color: colors.slate, marginBottom: 20 }}>Policy number: {policyNumber}</p>
+                  <button style={buttonStyle} onClick={downloadPolicyPdf}>Download policy PDF</button>
                 </div>
               ) : paymentStatus === "processing" ? (
                 <p style={{ fontSize: 13, color: colors.slate, textAlign: "center", paddingTop: 24 }}>Processing payment…</p>
