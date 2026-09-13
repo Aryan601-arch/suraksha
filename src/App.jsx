@@ -96,13 +96,44 @@ const PRODUCTS = [
     rateStructureType: "usd_base",
     fields: [
       { key: "plan", label: "Plan / area", type: "enum", options: [
-        { value: "saarc", label: "SAARC countries" }, { value: "asian", label: "Asian, excl. SAARC" },
-        { value: "worldwide_ex_us", label: "Worldwide, excl. US/Canada" }, { value: "worldwide_incl_us", label: "Worldwide, incl. US/Canada" },
+        { value: "saarc", label: "SAARC countries" }, { value: "asian", label: "Asian, incl. SAARC" },
+        { value: "worldwide_ex_us", label: "Worldwide, excl. US/Canada (Plan A)" }, { value: "worldwide_incl_us", label: "Worldwide, incl. US/Canada (Plan B)" },
       ]},
-      { key: "days", label: "Trip length (days)", type: "number" },
+      // SAARC has only one combined table (no medical/package split) — this
+      // field is hidden for that plan and ignored by the rate lookup.
+      { key: "cover_type", label: "Cover type", type: "enum", options: [
+        { value: "medical_only", label: "Medical only" },
+        { value: "package", label: "Package (all sections)" },
+      ]},
+      { key: "age_band", label: "Age band", type: "enum", options: [
+        { value: "5-40", label: "5–40 years" },
+        { value: "41-60", label: "41–60 years" },
+        { value: "61-70", label: "61–70 years" },
+        { value: "71-79", label: "71–79 years (2× the 61–70 rate, clean medical exam required)" },
+        { value: "80-84", label: "80–84 years (3× the 61–70 rate, clean medical exam required)" },
+      ]},
+      { key: "days", label: "Trip length (days, up to 365)", type: "number" },
       { key: "usd_rate", label: "USD to NPR rate (NRB sell rate, live)", type: "number" },
     ],
-    defaults: { plan: "asian", days: 10, usd_rate: 138 },
+    defaults: { plan: "asian", cover_type: "package", age_band: "5-40", days: 10, usd_rate: 138 },
+    docsRequired: [{ key: "citizenship", label: "Citizenship document" }, { key: "passport", label: "Passport copy" }],
+  },
+  {
+    id: "schengen-1",
+    category: "travel",
+    coverageKey: "schengen_travel",
+    name: "Schengen Travel Insurance (Euro Plan)",
+    rateStructureType: "eur_base",
+    fields: [
+      { key: "age_band", label: "Age band", type: "enum", options: [
+        { value: "5-40", label: "5–40 years" },
+        { value: "41-60", label: "41–60 years" },
+        { value: "61-70", label: "61–70 years" },
+      ]},
+      { key: "days", label: "Trip length (days, up to 180)", type: "number" },
+      { key: "fx_rate", label: "EUR to NPR rate (NRB sell rate, live)", type: "number" },
+    ],
+    defaults: { age_band: "5-40", days: 10, fx_rate: 150 },
     docsRequired: [{ key: "citizenship", label: "Citizenship document" }, { key: "passport", label: "Passport copy" }],
   },
   {
@@ -427,14 +458,98 @@ const RATE_TABLES = {
     },
     stamp_duty_flat: 40,
   },
+  // Travel medical insurance — The Oriental Insurance Co. Ltd, "Overseas
+  // Mediclaim Insurance", U/Y 2024 rate filing @ 16 Jul 2024. Real day-band x
+  // age-band USD tables (previously an invented flat placeholder that ignored
+  // both trip length and age entirely).
   "travel-1": {
-    usd_premium_table: {
-      saarc: { medical_only: 12, package: 18 },
-      asian: { medical_only: 20, package: 30 },
-      worldwide_ex_us: { medical_only: 28, package: 42 },
-      worldwide_incl_us: { medical_only: 45, package: 65 },
+    day_bands: [
+      { max_days: 7, key: "1-7" }, { max_days: 14, key: "8-14" }, { max_days: 21, key: "15-21" },
+      { max_days: 28, key: "22-28" }, { max_days: 35, key: "29-35" }, { max_days: 47, key: "36-47" },
+      { max_days: 60, key: "48-60" }, { max_days: 75, key: "61-75" }, { max_days: 90, key: "76-90" },
+      { max_days: 120, key: "91-120" }, { max_days: 147, key: "121-147" }, { max_days: 180, key: "148-180" },
+    ],
+    plans: {
+      // SAARC Countries Plan — single table, no medical-only/package split.
+      saarc: {
+        single: {
+          "5-40": { "1-7": 11, "8-14": 14, "15-21": 15, "22-28": 16, "29-35": 19, "36-47": 21, "48-60": 23, "61-75": 28, "76-90": 32, "91-120": 51, "121-147": 62, "148-180": 76 },
+          "41-60": { "1-7": 13, "8-14": 15, "15-21": 16, "22-28": 17, "29-35": 21, "36-47": 23, "48-60": 25, "61-75": 31, "76-90": 35, "91-120": 56, "121-147": 67, "148-180": 83 },
+          "61-70": { "1-7": 17, "8-14": 21, "15-21": 22, "22-28": 24, "29-35": 28, "36-47": 32, "48-60": 36, "61-75": 44, "76-90": 51, "91-120": 82, "121-147": 97, "148-180": 124 },
+        },
+      },
+      // Asian Countries Plan (including SAARC countries) — source table's own
+      // top age band is labeled "61-69", kept as the "61-70" bucket here for
+      // consistency with the other three plans; figures are unchanged.
+      asian: {
+        medical_only: {
+          "5-40": { "1-7": 16, "8-14": 20, "15-21": 21, "22-28": 22, "29-35": 26, "36-47": 29, "48-60": 33, "61-75": 38, "76-90": 45, "91-120": 71, "121-147": 85, "148-180": 104 },
+          "41-60": { "1-7": 18, "8-14": 21, "15-21": 22, "22-28": 24, "29-35": 28, "36-47": 30, "48-60": 35, "61-75": 42, "76-90": 48, "91-120": 78, "121-147": 93, "148-180": 114 },
+          "61-70": { "1-7": 23, "8-14": 28, "15-21": 30, "22-28": 33, "29-35": 38, "36-47": 43, "48-60": 49, "61-75": 61, "76-90": 70, "91-120": 115, "121-147": 137, "148-180": 200 },
+        },
+        package: {
+          "5-40": { "1-7": 18, "8-14": 22, "15-21": 23, "22-28": 25, "29-35": 30, "36-47": 33, "48-60": 38, "61-75": 45, "76-90": 52, "91-120": 85, "121-147": 102, "148-180": 125 },
+          "41-60": { "1-7": 20, "8-14": 23, "15-21": 25, "22-28": 26, "29-35": 31, "36-47": 35, "48-60": 41, "61-75": 49, "76-90": 57, "91-120": 94, "121-147": 111, "148-180": 138 },
+          "61-70": { "1-7": 28, "8-14": 32, "15-21": 34, "22-28": 38, "29-35": 43, "36-47": 50, "48-60": 58, "61-75": 71, "76-90": 84, "91-120": 138, "121-147": 165, "148-180": 206 },
+        },
+      },
+      // Standard Plan "A" — worldwide excluding USA & Canada.
+      worldwide_ex_us: {
+        medical_only: {
+          "5-40": { "1-7": 25, "8-14": 32, "15-21": 33, "22-28": 35, "29-35": 41, "36-47": 46, "48-60": 50, "61-75": 61, "76-90": 70, "91-120": 113, "121-147": 137, "148-180": 168 },
+          "41-60": { "1-7": 30, "8-14": 34, "15-21": 35, "22-28": 38, "29-35": 45, "36-47": 49, "48-60": 56, "61-75": 67, "76-90": 78, "91-120": 123, "121-147": 150, "148-180": 183 },
+          "61-70": { "1-7": 38, "8-14": 45, "15-21": 47, "22-28": 53, "29-35": 62, "36-47": 70, "48-60": 79, "61-75": 98, "76-90": 114, "91-120": 182, "121-147": 216, "148-180": 275 },
+        },
+        package: {
+          "5-40": { "1-7": 28, "8-14": 35, "15-21": 36, "22-28": 39, "29-35": 47, "36-47": 52, "48-60": 60, "61-75": 73, "76-90": 85, "91-120": 140, "121-147": 167, "148-180": 208 },
+          "41-60": { "1-7": 32, "8-14": 37, "15-21": 39, "22-28": 43, "29-35": 51, "36-47": 57, "48-60": 66, "61-75": 80, "76-90": 95, "91-120": 147, "121-147": 175, "148-180": 220 },
+          "61-70": { "1-7": 44, "8-14": 52, "15-21": 54, "22-28": 61, "29-35": 70, "36-47": 81, "48-60": 93, "61-75": 113, "76-90": 132, "91-120": 219, "121-147": 268, "148-180": 325 },
+        },
+      },
+      // Standard Plan "B" — worldwide including USA & Canada.
+      worldwide_incl_us: {
+        medical_only: {
+          "5-40": { "1-7": 40, "8-14": 55, "15-21": 58.3, "22-28": 63.8, "29-35": 74.8, "36-47": 86.9, "48-60": 119.9, "61-75": 168.3, "76-90": 200.2, "91-120": 277.2, "121-147": 364.1, "148-180": 524.7 },
+          "41-60": { "1-7": 55, "8-14": 73.7, "15-21": 78.1, "22-28": 88, "29-35": 100.1, "36-47": 119.9, "48-60": 172.7, "61-75": 245.3, "76-90": 292.6, "91-120": 409.2, "121-147": 541.2, "148-180": 622.6 },
+          "61-70": { "1-7": 72, "8-14": 80.3, "15-21": 84.7, "22-28": 95.7, "29-35": 112.2, "36-47": 135.3, "48-60": 192.5, "61-75": 273.9, "76-90": 327.8, "91-120": 459.8, "121-147": 609.4, "148-180": 722.7 },
+        },
+        package: {
+          "5-40": { "1-7": 50, "8-14": 62.7, "15-21": 66, "22-28": 73.7, "29-35": 86.9, "36-47": 101.2, "48-60": 143, "61-75": 202.4, "76-90": 242, "91-120": 336.6, "121-147": 444.4, "148-180": 641.3 },
+          "41-60": { "1-7": 68, "8-14": 85.8, "15-21": 90.2, "22-28": 103.4, "29-35": 121, "36-47": 145.2, "48-60": 209, "61-75": 297, "76-90": 355.3, "91-120": 499.4, "121-147": 662.2, "148-180": 788.7 },
+          "61-70": { "1-7": 80, "8-14": 94.6, "15-21": 100.1, "22-28": 113.3, "29-35": 134.2, "36-47": 161.7, "48-60": 232.1, "61-75": 333.3, "76-90": 399.3, "91-120": 561, "121-147": 745.8, "148-180": 885.5 },
+        },
+      },
     },
-    stamp_duty_flat: 50,
+    // Rating note 4: ages 71-79 and 80-84 are priced as a multiple of the
+    // 61-70 band rate (subject to a clean medical exam); 85+ is by request
+    // only and isn't modeled here.
+    age_loading_multiplier: { "71-79": 2, "80-84": 3 },
+    // Rating note 5: trips of 181-365 days are the 180-day rate plus the
+    // rate applicable to the days beyond 180 — handled in calc() by re-running
+    // the day-band lookup on the excess days.
+    // Rating note 2 (family = 2.5x single premium, with free/discounted child
+    // rates) and note 3 are NOT modeled — this product only prices a single
+    // traveler today.
+    stamp_duty_flat: 50, // no stamp duty figure in the source filing — carried over from the prior placeholder
+  },
+  // Schengen Travel Insurance (Euro Plan) — The Oriental Insurance Co. Ltd,
+  // "Schengen - Euro Plan Benefits and Rating 2025". Same day-band structure
+  // as travel-1, EUR-denominated, single combined table (no medical/package
+  // split), and only three age bands in the source sheet — no 71-79/80-84
+  // loading is stated for this specific plan.
+  "schengen-1": {
+    day_bands: [
+      { max_days: 7, key: "1-7" }, { max_days: 14, key: "8-14" }, { max_days: 21, key: "15-21" },
+      { max_days: 28, key: "22-28" }, { max_days: 35, key: "29-35" }, { max_days: 47, key: "36-47" },
+      { max_days: 60, key: "48-60" }, { max_days: 75, key: "61-75" }, { max_days: 90, key: "76-90" },
+      { max_days: 120, key: "91-120" }, { max_days: 147, key: "121-147" }, { max_days: 180, key: "148-180" },
+    ],
+    age_bands: {
+      "5-40": { "1-7": 16.48, "8-14": 20.6, "15-21": 21.63, "22-28": 22.66, "29-35": 26.78, "36-47": 29.87, "48-60": 33.99, "61-75": 39.14, "76-90": 46.35, "91-120": 73.13, "121-147": 87.55, "148-180": 107.12 },
+      "41-60": { "1-7": 18.54, "8-14": 21.63, "15-21": 22.66, "22-28": 24.72, "29-35": 28.84, "36-47": 30.9, "48-60": 36.05, "61-75": 43.26, "76-90": 49.44, "91-120": 80.34, "121-147": 95.79, "148-180": 117.42 },
+      "61-70": { "1-7": 23.69, "8-14": 28.84, "15-21": 30.9, "22-28": 33.99, "29-35": 39.14, "36-47": 44.29, "48-60": 50.47, "61-75": 62.83, "76-90": 72.1, "91-120": 118.45, "121-147": 141.11, "148-180": 206 },
+    },
+    stamp_duty_flat: 50, // no stamp duty figure in the source documents — carried over from travel-1's placeholder
   },
   // Group Personal Accident Insurance — Accident Insurance Directive 2078
   // (दुर्घटना बीमा निर्देशिका, २०७८), Beema Samiti, effective 2078.08.01 (17 Nov 2021).
@@ -538,9 +653,9 @@ const RATE_TABLES = {
   },
 };
 
-// Claim-side benefit schedule, keyed by product category — separate from
-// RATE_TABLES (which only prices the premium). Currently only populated for
-// personal_accident, straight from the Accident Insurance Directive 2078.
+// Claim-side benefit schedule, keyed by product category (or a product's own
+// coverageKey, when more than one product in a category needs its own
+// schedule) — separate from RATE_TABLES, which only prices the premium.
 const COVERAGE_SCHEDULES = {
   personal_accident: {
     sourceLabel: "Accident Insurance Directive, 2078 (Beema Samiti)",
@@ -598,9 +713,78 @@ const COVERAGE_SCHEDULES = {
     },
     minClaim: 2500, // Sec. 22(1) — no claim below this amount is payable under the policy
   },
+  schengen_travel: {
+    sourceLabel: "Overseas Mediclaim Insurance Policy — The Oriental Insurance Co. Ltd (Schengen Euro Plan)",
+    benefits: [
+      { label: "A — Personal accident (death / loss of limb / loss of sight / permanent total disablement)", detail: "Max EUR 10,000 · Nil excess", source: "Sched." },
+      { label: "B — Emergency medical, evacuation & air ambulance", detail: "Max EUR 30,000 · EUR 100 excess", source: "Sched." },
+      { label: "B — Emergency dental care (pain relief only)", detail: "Max EUR 50 · Nil excess", source: "Sched." },
+      { label: "B — Repatriation of mortal remains", detail: "Covered · EUR 100 excess", source: "Sched." },
+      { label: "C — Hospital cash benefit", detail: "EUR 10 per 24 hrs, up to EUR 100 (min. 24 hrs hospitalised)", source: "Sched." },
+      { label: "D — Loss of passport", detail: "Max EUR 100 · Nil excess", source: "Sched." },
+      { label: "E — Personal liability", detail: "Max EUR 15,000 · EUR 250 excess (property damage only)", source: "Sched." },
+      { label: "F — Travel delay (air only)", detail: "EUR 10/hour up to EUR 50 · first 12 hrs is the excess", source: "Sched." },
+      { label: "G — Hijack", detail: "EUR 50/day up to EUR 500, plus EUR 50 per 24-hr period of detention", source: "Sched." },
+    ],
+    permanentTotal: {
+      title: "Section A — payout by event, % of the EUR 10,000 sum insured",
+      source: "Policy wording, Table of Events",
+      rows: [
+        { label: "Death", pct: 100 },
+        { label: "Permanent total disablement", pct: 100 },
+        { label: "Loss of one or more limbs", pct: 100 },
+        { label: "Loss of sight, both eyes", pct: 100 },
+        { label: "Loss of sight, one eye", pct: 50 },
+      ],
+    },
+    permanentPartial: {
+      title: "Conditions on Section A",
+      source: "Policy wording",
+      rows: [
+        { label: "Death benefit capped at USD 5,000 for insureds under 18 or over 65 — worded in USD in the source policy even though this plan's own limits are in EUR", pct: "" },
+        { label: "No permanent total disablement benefit for insureds over 65", pct: "" },
+        { label: "Only one loss payable per accident, even if more than one applies", pct: "" },
+      ],
+    },
+    riders: {
+      title: "Claims — what you must do",
+      source: "Policy wording",
+      rows: [
+        { label: "Death, hospital admission, accident, or medical expenses over USD 500", detail: "Contact GLOBAL RESPONSE (24/7) before treatment — costs aren't payable without their prior approval" },
+        { label: "Non-emergency claims", detail: "Notify within 31 days of returning to Nepal, with a completed claim form and all bills/receipts" },
+      ],
+    },
+    exclusions: {
+      title: "Not covered",
+      source: "Policy wording",
+      rows: [
+        "Pre-existing medical conditions",
+        "Travelling against medical advice, or to obtain treatment",
+        "Adventure sports — off-piste skiing, mountaineering with ropes, hang-gliding, paragliding, bungee jumping, scuba diving, motor racing, motorcycling above 50cc — unless separately arranged",
+        "Self-inflicted injury, suicide, or under the influence of alcohol/drugs",
+        "War, terrorism, or radioactive/nuclear/chemical contamination",
+        "Any pandemic declared by the World Health Organization",
+      ],
+    },
+    minClaim: null,
+    eligibilityNote: "The policy wording states eligibility up to age 70 at inception, yet the 2025 rate sheet separately prices ages up to 84 at a loaded multiple of an adjacent band elsewhere in this insurer's filings — an inconsistency in the source documents themselves, not something this app introduced. This plan's own rate sheet stops at age 70; ask the insurer directly for older travellers.",
+  },
 };
 
 const r = (n) => Math.round(n * 100) / 100;
+
+// Shared by travel-1 (USD) and schengen-1 (EUR): both price a trip length in
+// days off the same day-band table shape. Trips over 180 days (only possible
+// for travel-1 — schengen-1's UI caps at 180) use rating note 5: the 180-day
+// rate plus the rate for the days beyond 180.
+function dayBandPremium(dayBands, ageRow, days) {
+  const lookup = (d) => {
+    const band = dayBands.find((b) => d <= b.max_days) || dayBands[dayBands.length - 1];
+    return ageRow[band.key];
+  };
+  if (days <= 180) return lookup(days);
+  return ageRow["148-180"] + lookup(Math.min(days - 180, 180));
+}
 
 function calc(product, factor, v) {
   const rt = RATE_TABLES[product.id];
@@ -664,12 +848,29 @@ function calc(product, factor, v) {
     return { rows: [{ label: "Premium", value: premium }, { label: "Stamp duty", value: rt.stamp_duty_flat }], net: r(premium + rt.stamp_duty_flat) };
   }
   if (product.rateStructureType === "usd_base") {
-    const usd = (rt.usd_premium_table?.[v.plan]?.package ?? 0) * factor;
+    const planTable = rt.plans[v.plan];
+    const table = planTable.single || planTable[v.cover_type] || planTable.package;
+    const lookupBand = v.age_band === "71-79" || v.age_band === "80-84" ? "61-70" : v.age_band;
+    const loading = rt.age_loading_multiplier[v.age_band] || 1;
+    const usd = dayBandPremium(rt.day_bands, table[lookupBand], Number(v.days || 0)) * loading * factor;
     const amount = usd * Number(v.usd_rate || 0);
     const vat = amount * 0.13;
     return {
       rows: [
-        { label: `Premium (${r(usd)} USD × rate)`, value: r(amount) },
+        { label: loading > 1 ? `Premium (${r(usd)} USD × rate, incl. ${loading}× age loading)` : `Premium (${r(usd)} USD × rate)`, value: r(amount) },
+        { label: "VAT (13%)", value: r(vat) },
+        { label: "Stamp duty", value: rt.stamp_duty_flat },
+      ],
+      net: r(amount + vat + rt.stamp_duty_flat),
+    };
+  }
+  if (product.rateStructureType === "eur_base") {
+    const eur = dayBandPremium(rt.day_bands, rt.age_bands[v.age_band], Number(v.days || 0)) * factor;
+    const amount = eur * Number(v.fx_rate || 0);
+    const vat = amount * 0.13;
+    return {
+      rows: [
+        { label: `Premium (${r(eur)} EUR × rate)`, value: r(amount) },
         { label: "VAT (13%)", value: r(vat) },
         { label: "Stamp duty", value: rt.stamp_duty_flat },
       ],
@@ -854,9 +1055,9 @@ export default function MobilePreview() {
     setCoverageOpen(null);
     setScreen("product");
     if (selectedProduct.rateStructureType === "usd_base") {
-      // Travel plans are all USD-denominated today; pass a different ISO3
-      // here if a future product prices in another currency (EUR, GBP, etc.)
       fetchNrbRate("USD", nrbRateFieldKey(selectedProduct) || "usd_rate");
+    } else if (selectedProduct.rateStructureType === "eur_base") {
+      fetchNrbRate("EUR", nrbRateFieldKey(selectedProduct) || "fx_rate");
     }
   }
 
@@ -944,8 +1145,8 @@ export default function MobilePreview() {
 
           {screen === "product" && selectedProduct && (
             <>
-              {COVERAGE_SCHEDULES[selectedProduct.category] && (() => {
-                const cov = COVERAGE_SCHEDULES[selectedProduct.category];
+              {COVERAGE_SCHEDULES[selectedProduct.coverageKey || selectedProduct.category] && (() => {
+                const cov = COVERAGE_SCHEDULES[selectedProduct.coverageKey || selectedProduct.category];
                 const sectionToggle = (key, title, source) => (
                   <button
                     onClick={() => setCoverageOpen(coverageOpen === key ? null : key)}
@@ -969,9 +1170,14 @@ export default function MobilePreview() {
                         <div style={{ fontSize: 12, color: colors.slate }}>{b.detail}</div>
                       </div>
                     ))}
-                    <p style={{ fontSize: 11.5, color: colors.slate, margin: "6px 0 4px" }}>
-                      Minimum claim: Rs {cov.minClaim.toLocaleString()} — smaller claims aren't payable under this policy (Sec. 22).
-                    </p>
+                    {cov.minClaim != null && (
+                      <p style={{ fontSize: 11.5, color: colors.slate, margin: "6px 0 4px" }}>
+                        Minimum claim: Rs {cov.minClaim.toLocaleString()} — smaller claims aren't payable under this policy (Sec. 22).
+                      </p>
+                    )}
+                    {cov.eligibilityNote && (
+                      <p style={{ fontSize: 11.5, color: colors.slate, margin: "6px 0 4px" }}>{cov.eligibilityNote}</p>
+                    )}
 
                     <div style={{ borderTop: `1px solid ${colors.line}`, marginTop: 6 }}>
                       {sectionToggle("disability", "Disability payout schedule", `${cov.permanentTotal.source} / ${cov.permanentPartial.source}`)}
@@ -1025,6 +1231,7 @@ export default function MobilePreview() {
 
               {selectedProduct.fields.map((field) => {
                 if (field.key === "fx_rate" && form.invoice_currency === "NPR") return null; // no FX conversion needed for a NPR invoice
+                if (field.key === "cover_type" && form.plan === "saarc") return null; // SAARC has one combined table, no medical/package split
                 return (
                 <div key={field.key} style={{ marginBottom: 14 }}>
                   <label style={{ fontSize: 12, fontWeight: 600, color: colors.slate, display: "block", marginBottom: 4 }}>
