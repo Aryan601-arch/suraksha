@@ -979,6 +979,33 @@ function nrbRateFieldKey(product) {
   return product.fields.find((f) => f.key === "usd_rate" || f.key === "fx_rate")?.key;
 }
 
+// There's no backend on this static site, so "looking up an existing policy
+// to renew" can only mean a policy bought previously in this same browser —
+// persisted to localStorage at the moment of payment and read back by policy
+// number when a renewal is started. Every access is wrapped: localStorage can
+// throw (private browsing, blocked site data) and should degrade to "not
+// found" rather than crash the app.
+const POLICY_STORE_KEY = "suraksha_policies";
+
+function savePolicyRecord(record) {
+  try {
+    const all = JSON.parse(localStorage.getItem(POLICY_STORE_KEY) || "{}");
+    all[record.policyNumber] = record;
+    localStorage.setItem(POLICY_STORE_KEY, JSON.stringify(all));
+  } catch (e) {
+    // Best-effort only — a renewal lookup just won't find this policy later.
+  }
+}
+
+function loadPolicyRecord(policyNumber) {
+  try {
+    const all = JSON.parse(localStorage.getItem(POLICY_STORE_KEY) || "{}");
+    return all[policyNumber.trim()] || null;
+  } catch (e) {
+    return null;
+  }
+}
+
 export default function MobilePreview() {
   const [screen, setScreen] = useState("home");
   const [activeCategory, setActiveCategory] = useState(null);
@@ -992,6 +1019,14 @@ export default function MobilePreview() {
   const [policyNumber, setPolicyNumber] = useState(null);
   const [usdRateInfo, setUsdRateInfo] = useState({ status: "idle", rate: null, date: null, currency: null });
   const [coverageOpen, setCoverageOpen] = useState(null); // null, or one of: "disability", "riders", "exclusions"
+
+  // Renewal flow: renewalLookup is the policy-number search box; renewalContext
+  // is set once a policy is found and stays set through the rest of the flow
+  // (quote, payment, PDF) so those screens know this is a renewal, not a new
+  // purchase, and can show/generate the right thing.
+  const [renewalLookup, setRenewalLookup] = useState("");
+  const [renewalLookupError, setRenewalLookupError] = useState(null);
+  const [renewalContext, setRenewalContext] = useState(null); // null | { originalPolicyNumber, purchaseDate, priorNet }
 
   const visibleProducts = activeCategory ? PRODUCTS.filter((p) => p.category === activeCategory) : PRODUCTS;
 
@@ -1053,6 +1088,7 @@ export default function MobilePreview() {
 
   function openProduct(p) {
     setSelectedProduct(p);
+    setRenewalContext(null);
     setScreen("insurers");
   }
 
@@ -1065,6 +1101,7 @@ export default function MobilePreview() {
     setPaymentStatus(null);
     setPolicyNumber(null);
     setCoverageOpen(null);
+    setRenewalContext(null);
     setScreen("product");
     if (selectedProduct.rateStructureType === "usd_base") {
       fetchNrbRate("USD", nrbRateFieldKey(selectedProduct) || "usd_rate");
@@ -1073,13 +1110,83 @@ export default function MobilePreview() {
     }
   }
 
+  // --- Renewal flow (policy number -> details check -> renew or re-quote -> payment) ---
+
+  function startRenewal() {
+    setRenewalLookup("");
+    setRenewalLookupError(null);
+    setRenewalContext(null);
+    setScreen("renew-lookup");
+  }
+
+  function findPolicyForRenewal() {
+    if (!renewalLookup.trim()) return;
+    const record = loadPolicyRecord(renewalLookup);
+    if (!record) {
+      setRenewalLookupError(
+        "No policy found with that number on this device. Renewal lookup only works for policies bought earlier in this same browser — there's no shared account system behind this yet."
+      );
+      return;
+    }
+    const product = PRODUCTS.find((p) => p.id === record.productId);
+    const insurer = INSURERS.find((i) => i.id === record.insurerId);
+    if (!product || !insurer) {
+      setRenewalLookupError("That policy's product or insurer is no longer available.");
+      return;
+    }
+    setRenewalLookupError(null);
+    setSelectedProduct(product);
+    setSelectedInsurer(insurer);
+    setForm(record.form);
+    setInsuredName(record.insuredName);
+    setDocs(record.docs);
+    setQuote(null);
+    setPaymentStatus(null);
+    setPolicyNumber(null);
+    setRenewalContext({ originalPolicyNumber: record.policyNumber, purchaseDate: record.purchaseDate, priorNet: record.quoteNet });
+    setScreen("renew-check");
+    if (product.rateStructureType === "usd_base") {
+      fetchNrbRate("USD", nrbRateFieldKey(product) || "usd_rate");
+    } else if (product.rateStructureType === "eur_base") {
+      fetchNrbRate("EUR", nrbRateFieldKey(product) || "fx_rate");
+    }
+  }
+
+  // "Nothing's changed" — skip straight to a fresh quote (current rates,
+  // same insurer, same cover) and payment. No document re-upload: those were
+  // already verified when the policy was first issued.
+  function renewUnchanged() {
+    setQuote(calc(selectedProduct, selectedInsurer.factor, form));
+    setScreen("payment");
+  }
+
+  // "Something's changed" — drop into the normal product-quote screen,
+  // pre-filled with the prior cover, so they can edit and re-quote through
+  // the same insurer-rating engine as any other purchase.
+  function renewWithChanges() {
+    setScreen("product");
+  }
+
   function pay(gateway) {
     setPaymentStatus("processing");
     setTimeout(() => {
       const productCode = selectedProduct.id.replace(/[^a-z0-9]/gi, "").toUpperCase().slice(0, 6);
       const year = new Date().getFullYear();
       const serial = String(Math.floor(Math.random() * 90000) + 10000);
-      setPolicyNumber(`SICL-${productCode}-${year}-${serial}`);
+      const newPolicyNumber = `SICL-${productCode}-${year}-${serial}`;
+      setPolicyNumber(newPolicyNumber);
+      savePolicyRecord({
+        policyNumber: newPolicyNumber,
+        productId: selectedProduct.id,
+        insurerId: selectedInsurer.id,
+        form,
+        insuredName,
+        docs,
+        quoteRows: quote.rows,
+        quoteNet: quote.net,
+        purchaseDate: new Date().toISOString(),
+        renewedFrom: renewalContext?.originalPolicyNumber ?? null,
+      });
       setPaymentStatus("success");
     }, 1000);
   }
@@ -1120,7 +1227,7 @@ export default function MobilePreview() {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(14);
     doc.setTextColor(...hexRgb(colors.ink));
-    doc.text("Cover Note / Policy Schedule", marginX, (y += 10));
+    doc.text(renewalContext ? "Renewal Cover Note / Policy Schedule" : "Cover Note / Policy Schedule", marginX, (y += 10));
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10.5);
@@ -1131,6 +1238,12 @@ export default function MobilePreview() {
       ["Insurer", selectedInsurer?.name || "—"],
       ["Product", selectedProduct?.name || "—"],
       ["Policyholder", insuredName || "—"],
+      ...(renewalContext
+        ? [
+            ["Renewed from", renewalContext.originalPolicyNumber],
+            ["Reinsurance", "Placed with the insurer's treaty reinsurer"],
+          ]
+        : []),
     ];
     y += 8;
     headerRows.forEach(([label, value]) => {
@@ -1219,7 +1332,16 @@ export default function MobilePreview() {
         <div style={{ background: colors.paper, borderBottom: `1px solid ${colors.line}`, padding: "12px 16px", display: "flex", alignItems: "center", gap: 8 }}>
           {screen !== "home" && (
             <button
-              onClick={() => setScreen(screen === "product" ? "insurers" : screen === "kyc" ? "product" : screen === "payment" ? "kyc" : "home")}
+              onClick={() =>
+                setScreen(
+                  screen === "renew-lookup" ? "home"
+                  : screen === "renew-check" ? "renew-lookup"
+                  : screen === "product" ? (renewalContext ? "renew-check" : "insurers")
+                  : screen === "kyc" ? "product"
+                  : screen === "payment" ? (renewalContext ? "renew-check" : "kyc")
+                  : "home"
+                )
+              }
               style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}
               aria-label="Back"
             >
@@ -1227,13 +1349,27 @@ export default function MobilePreview() {
             </button>
           )}
           <span style={{ fontFamily: "Georgia, serif", fontWeight: 700, fontSize: 16, color: colors.mossDeep, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {screen === "home" ? "Suraksha" : screen === "insurers" ? selectedProduct?.name : screen === "kyc" ? "Documents" : screen === "payment" ? "Payment" : `${selectedProduct?.name} — ${selectedInsurer?.name}`}
+            {screen === "home" ? "Suraksha"
+              : screen === "renew-lookup" ? "Renew a policy"
+              : screen === "renew-check" ? "Details check"
+              : screen === "insurers" ? selectedProduct?.name
+              : screen === "kyc" ? "Documents"
+              : screen === "payment" ? "Payment"
+              : `${selectedProduct?.name} — ${selectedInsurer?.name}`}
           </span>
         </div>
 
         <div style={{ flex: 1, overflowY: "auto", padding: 16, fontFamily: "-apple-system, sans-serif" }}>
           {screen === "home" && (
             <>
+              <button
+                onClick={startRenewal}
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", background: colors.card, border: `1px solid ${colors.moss}`, borderRadius: 10, padding: 12, marginBottom: 16, cursor: "pointer" }}
+              >
+                <span style={{ fontSize: 13, fontWeight: 700, color: colors.mossDeep }}>Have a policy already? Renew it</span>
+                <ChevronRight size={16} color={colors.moss} />
+              </button>
+
               <p style={{ fontSize: 15, fontWeight: 700, color: colors.ink, margin: "0 0 12px" }}>What are you insuring today?</p>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
                 {CATEGORIES.map((c) => (
@@ -1259,6 +1395,76 @@ export default function MobilePreview() {
                 ))}
                 {visibleProducts.length === 0 && <p style={{ fontSize: 13, color: colors.slate }}>No products in this category yet.</p>}
               </div>
+            </>
+          )}
+
+          {screen === "renew-lookup" && (
+            <>
+              <p style={{ fontSize: 13, color: colors.slate, margin: "0 0 14px" }}>
+                Enter the policy number from your policy PDF to renew it.
+              </p>
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: colors.slate, display: "block", marginBottom: 4 }}>Policy number</label>
+                <input
+                  type="text"
+                  value={renewalLookup}
+                  onChange={(e) => setRenewalLookup(e.target.value)}
+                  style={inputStyle}
+                  placeholder="e.g. SICL-PAINDI-2026-71660"
+                />
+              </div>
+              {renewalLookupError && (
+                <p style={{ fontSize: 12, color: "#a33", marginBottom: 12 }}>{renewalLookupError}</p>
+              )}
+              <button style={{ ...buttonStyle, opacity: renewalLookup.trim() ? 1 : 0.5 }} disabled={!renewalLookup.trim()} onClick={findPolicyForRenewal}>
+                Find policy
+              </button>
+              <p style={{ fontSize: 11, color: colors.slate, marginTop: 14 }}>
+                Renewal lookup only works for policies bought earlier in this same browser — this app has no shared account system behind it yet.
+              </p>
+            </>
+          )}
+
+          {screen === "renew-check" && selectedProduct && selectedInsurer && renewalContext && (
+            <>
+              <p style={{ fontSize: 13, fontWeight: 700, color: colors.ink, margin: "0 0 4px" }}>Details check</p>
+              <p style={{ fontSize: 12, color: colors.slate, margin: "0 0 14px" }}>
+                Here's what's on file for policy {renewalContext.originalPolicyNumber}. Let us know if anything's changed before we renew it.
+              </p>
+              <div style={{ background: colors.card, border: `1px solid ${colors.line}`, borderRadius: 10, padding: "12px 14px", marginBottom: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}>
+                  <span style={{ color: colors.slate }}>Insurer</span>
+                  <span style={{ fontWeight: 700, color: colors.ink }}>{selectedInsurer.name}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}>
+                  <span style={{ color: colors.slate }}>Product</span>
+                  <span style={{ fontWeight: 700, color: colors.ink }}>{selectedProduct.name}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}>
+                  <span style={{ color: colors.slate }}>Policyholder</span>
+                  <span style={{ fontWeight: 700, color: colors.ink }}>{insuredName}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}>
+                  <span style={{ color: colors.slate }}>Last premium paid</span>
+                  <span style={{ fontWeight: 700, color: colors.ink }}>Rs. {renewalContext.priorNet.toLocaleString()}</span>
+                </div>
+                <div style={{ borderTop: `1px solid ${colors.line}`, margin: "8px 0" }} />
+                {selectedProduct.fields.map((field) => {
+                  if (field.key === "usd_rate" || field.key === "fx_rate") return null; // live rate, not a "detail" to confirm
+                  if ((field.key === "fx_rate" && form.invoice_currency === "NPR") || (field.key === "cover_type" && form.plan === "saarc")) return null;
+                  if (form[field.key] === undefined) return null;
+                  return (
+                    <div key={field.key} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "3px 0" }}>
+                      <span style={{ color: colors.slate }}>{field.label}</span>
+                      <span style={{ color: colors.ink }}>{formatFieldValue(field, form[field.key])}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <button style={buttonStyle} onClick={renewUnchanged}>Nothing's changed — renew</button>
+              <button style={{ ...buttonStyle, marginTop: 8, background: colors.card, color: colors.mossDeep, border: `1px solid ${colors.moss}` }} onClick={renewWithChanges}>
+                Something's changed — update details
+              </button>
             </>
           )}
 
@@ -1288,6 +1494,12 @@ export default function MobilePreview() {
 
           {screen === "product" && selectedProduct && (
             <>
+              {renewalContext && (
+                <div style={{ marginBottom: 14, background: "#fff7e6", border: "1px solid #e8d5a3", borderRadius: 8, padding: "10px 12px" }}>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: colors.ink, margin: 0 }}>Renewing policy {renewalContext.originalPolicyNumber}</p>
+                  <p style={{ fontSize: 11.5, color: colors.slate, margin: "2px 0 0" }}>Update whatever's changed, then get a fresh quote.</p>
+                </div>
+              )}
               {COVERAGE_SCHEDULES[selectedProduct.coverageKey || selectedProduct.category] && (() => {
                 const cov = COVERAGE_SCHEDULES[selectedProduct.coverageKey || selectedProduct.category];
                 const sectionToggle = (key, title, source) => (
@@ -1451,7 +1663,9 @@ export default function MobilePreview() {
                     <span>Net premium</span>
                     <span>Rs. {quote.net.toLocaleString()}</span>
                   </div>
-                  <button style={{ ...buttonStyle, marginTop: 14 }} onClick={() => setScreen("kyc")}>Continue to buy</button>
+                  <button style={{ ...buttonStyle, marginTop: 14 }} onClick={() => setScreen(renewalContext ? "payment" : "kyc")}>
+                    {renewalContext ? "Continue to payment" : "Continue to buy"}
+                  </button>
                 </div>
               )}
             </>
@@ -1500,9 +1714,15 @@ export default function MobilePreview() {
                   <div style={{ width: 48, height: 48, borderRadius: "50%", background: "#e4efe9", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
                     <Check size={26} color={colors.mossDeep} />
                   </div>
-                  <p style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>Payment received</p>
+                  <p style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>{renewalContext ? "Policy renewed" : "Payment received"}</p>
                   <p style={{ fontSize: 13, color: colors.slate, marginBottom: 4 }}>Rs. {quote?.net.toLocaleString()} paid for {selectedProduct?.name}</p>
-                  <p style={{ fontSize: 12, color: colors.slate, marginBottom: 20 }}>Policy number: {policyNumber}</p>
+                  <p style={{ fontSize: 12, color: colors.slate, marginBottom: renewalContext ? 2 : 20 }}>Policy number: {policyNumber}</p>
+                  {renewalContext && (
+                    <>
+                      <p style={{ fontSize: 12, color: colors.slate, marginBottom: 2 }}>Renewed from: {renewalContext.originalPolicyNumber}</p>
+                      <p style={{ fontSize: 12, color: colors.slate, marginBottom: 20 }}>Reinsurance: placed with the insurer's treaty reinsurer</p>
+                    </>
+                  )}
                   <button style={buttonStyle} onClick={downloadPolicyPdf}>Download policy PDF</button>
                 </div>
               ) : paymentStatus === "processing" ? (
