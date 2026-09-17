@@ -1025,6 +1025,7 @@ export default function MobilePreview() {
   // (quote, payment, PDF) so those screens know this is a renewal, not a new
   // purchase, and can show/generate the right thing.
   const [renewalLookup, setRenewalLookup] = useState("");
+  const [renewalLookupInsurerId, setRenewalLookupInsurerId] = useState("");
   const [renewalLookupError, setRenewalLookupError] = useState(null);
   const [renewalContext, setRenewalContext] = useState(null); // null | { originalPolicyNumber, purchaseDate, priorNet }
 
@@ -1114,18 +1115,23 @@ export default function MobilePreview() {
 
   function startRenewal() {
     setRenewalLookup("");
+    setRenewalLookupInsurerId("");
     setRenewalLookupError(null);
     setRenewalContext(null);
     setScreen("renew-lookup");
   }
 
   function findPolicyForRenewal() {
-    if (!renewalLookup.trim()) return;
+    if (!renewalLookup.trim() || !renewalLookupInsurerId) return;
     const record = loadPolicyRecord(renewalLookup);
     if (!record) {
       setRenewalLookupError(
         "No policy found with that number on this device. Renewal lookup only works for policies bought earlier in this same browser — there's no shared account system behind this yet."
       );
+      return;
+    }
+    if (record.insurerId !== renewalLookupInsurerId) {
+      setRenewalLookupError("That policy number isn't on file with the insurer you selected. Double-check both and try again.");
       return;
     }
     const product = PRODUCTS.find((p) => p.id === record.productId);
@@ -1401,8 +1407,21 @@ export default function MobilePreview() {
           {screen === "renew-lookup" && (
             <>
               <p style={{ fontSize: 13, color: colors.slate, margin: "0 0 14px" }}>
-                Enter the policy number from your policy PDF to renew it.
+                Enter the policy number and insurer from your policy PDF to renew it.
               </p>
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: colors.slate, display: "block", marginBottom: 4 }}>Insurance company</label>
+                <select
+                  value={renewalLookupInsurerId}
+                  onChange={(e) => setRenewalLookupInsurerId(e.target.value)}
+                  style={inputStyle}
+                >
+                  <option value="">Select insurer</option>
+                  {INSURERS.map((ins) => (
+                    <option key={ins.id} value={ins.id}>{ins.name}</option>
+                  ))}
+                </select>
+              </div>
               <div style={{ marginBottom: 12 }}>
                 <label style={{ fontSize: 12, fontWeight: 600, color: colors.slate, display: "block", marginBottom: 4 }}>Policy number</label>
                 <input
@@ -1416,7 +1435,11 @@ export default function MobilePreview() {
               {renewalLookupError && (
                 <p style={{ fontSize: 12, color: "#a33", marginBottom: 12 }}>{renewalLookupError}</p>
               )}
-              <button style={{ ...buttonStyle, opacity: renewalLookup.trim() ? 1 : 0.5 }} disabled={!renewalLookup.trim()} onClick={findPolicyForRenewal}>
+              <button
+                style={{ ...buttonStyle, opacity: renewalLookup.trim() && renewalLookupInsurerId ? 1 : 0.5 }}
+                disabled={!renewalLookup.trim() || !renewalLookupInsurerId}
+                onClick={findPolicyForRenewal}
+              >
                 Find policy
               </button>
               <p style={{ fontSize: 11, color: colors.slate, marginTop: 14 }}>
@@ -1443,6 +1466,12 @@ export default function MobilePreview() {
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}>
                   <span style={{ color: colors.slate }}>Policyholder</span>
                   <span style={{ fontWeight: 700, color: colors.ink }}>{insuredName}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}>
+                  <span style={{ color: colors.slate }}>Purchased on</span>
+                  <span style={{ fontWeight: 700, color: colors.ink }}>
+                    {new Date(renewalContext.purchaseDate).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                  </span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}>
                   <span style={{ color: colors.slate }}>Last premium paid</span>
