@@ -1006,6 +1006,77 @@ function loadPolicyRecord(policyNumber) {
   }
 }
 
+// Nepali personal accident proposal forms (LIC Nepal's proposal form, and the
+// Beema Samiti Accident Insurance Directive 2078) require a named nominee and
+// their relationship to the insured — someone the claim can be paid to when
+// the insured can't collect it. "Other" carries the free-text relationship
+// those paper forms allow (in-law, guardian, and so on).
+const NOMINEE_RELATIONSHIPS = [
+  { value: "spouse", label: "Spouse" },
+  { value: "son", label: "Son" },
+  { value: "daughter", label: "Daughter" },
+  { value: "father", label: "Father" },
+  { value: "mother", label: "Mother" },
+  { value: "brother", label: "Brother" },
+  { value: "sister", label: "Sister" },
+  { value: "other", label: "Other" },
+];
+
+const EMPTY_NOMINEE = { name: "", relationship: "", relationshipOther: "", contact: "" };
+
+function nomineeRelationshipLabel(nominee) {
+  if (!nominee) return "";
+  if (nominee.relationship === "other") return (nominee.relationshipOther || "").trim();
+  return NOMINEE_RELATIONSHIPS.find((r) => r.value === nominee.relationship)?.label ?? "";
+}
+
+// Name, relationship and a contact number are all required before a proposal
+// can be submitted — a nominee nobody can reach is no better than no nominee.
+function isNomineeComplete(nominee) {
+  if (!nominee) return false;
+  const digits = (nominee.contact || "").replace(/\D/g, "");
+  return Boolean((nominee.name || "").trim()) && Boolean(nomineeRelationshipLabel(nominee)) && digits.length >= 7;
+}
+
+// Shared by the proposal (Documents screen) and by the renewal details check,
+// which has to collect a nominee for policies stored before this field existed.
+function NomineeFields({ nominee, onChange }) {
+  const set = (patch) => onChange({ ...nominee, ...patch });
+  const labelStyle = { fontSize: 12, fontWeight: 600, color: colors.slate, display: "block", marginBottom: 4 };
+  return (
+    <>
+      <div style={{ marginBottom: 12 }}>
+        <label style={labelStyle}>Nominee's full name</label>
+        <input type="text" value={nominee.name} onChange={(e) => set({ name: e.target.value })} style={inputStyle} placeholder="e.g. Sunita Sharma" />
+      </div>
+      <div style={{ marginBottom: 12 }}>
+        <label style={labelStyle}>Relationship to the insured</label>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {NOMINEE_RELATIONSHIPS.map((rel) => (
+            <button
+              key={rel.value}
+              onClick={() => set({ relationship: rel.value, relationshipOther: rel.value === "other" ? nominee.relationshipOther : "" })}
+              style={{ border: `1px solid ${colors.line}`, borderRadius: 999, padding: "6px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer", background: nominee.relationship === rel.value ? colors.moss : colors.card, color: nominee.relationship === rel.value ? colors.paper : colors.mossDeep }}
+            >
+              {rel.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {nominee.relationship === "other" && (
+        <div style={{ marginBottom: 12 }}>
+          <label style={labelStyle}>Relationship (please specify)</label>
+          <input type="text" value={nominee.relationshipOther} onChange={(e) => set({ relationshipOther: e.target.value })} style={inputStyle} placeholder="e.g. Nephew" />
+        </div>
+      )}
+      <div style={{ marginBottom: 12 }}>
+        <label style={labelStyle}>Nominee's contact number</label>
+        <input type="tel" inputMode="tel" value={nominee.contact} onChange={(e) => set({ contact: e.target.value })} style={inputStyle} placeholder="e.g. 9801234567" />
+      </div>
+    </>
+  );
+}
+
 export default function MobilePreview() {
   const [screen, setScreen] = useState("home");
   const [activeCategory, setActiveCategory] = useState(null);
@@ -1015,6 +1086,7 @@ export default function MobilePreview() {
   const [quote, setQuote] = useState(null);
   const [docs, setDocs] = useState({});
   const [insuredName, setInsuredName] = useState("");
+  const [nominee, setNominee] = useState(EMPTY_NOMINEE);
   const [paymentStatus, setPaymentStatus] = useState(null); // null | "processing" | "success"
   const [policyNumber, setPolicyNumber] = useState(null);
   const [usdRateInfo, setUsdRateInfo] = useState({ status: "idle", rate: null, date: null, currency: null });
@@ -1099,6 +1171,7 @@ export default function MobilePreview() {
     setQuote(null);
     setDocs({});
     setInsuredName("");
+    setNominee(EMPTY_NOMINEE);
     setPaymentStatus(null);
     setPolicyNumber(null);
     setCoverageOpen(null);
@@ -1145,6 +1218,7 @@ export default function MobilePreview() {
     setSelectedInsurer(insurer);
     setForm(record.form);
     setInsuredName(record.insuredName);
+    setNominee({ ...EMPTY_NOMINEE, ...(record.nominee || {}) });
     setDocs(record.docs);
     setQuote(null);
     setPaymentStatus(null);
@@ -1187,6 +1261,7 @@ export default function MobilePreview() {
         insurerId: selectedInsurer.id,
         form,
         insuredName,
+        nominee,
         docs,
         quoteRows: quote.rows,
         quoteNet: quote.net,
@@ -1273,6 +1348,19 @@ export default function MobilePreview() {
       if ((field.key === "fx_rate" && form.invoice_currency === "NPR") || (field.key === "cover_type" && form.plan === "saarc")) return;
       doc.text(`${field.label}: ${formatFieldValue(field, form[field.key])}`, marginX, (y += 6));
     });
+
+    if (y > 240) { doc.addPage(); y = 20; }
+    y += 2;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11.5);
+    doc.setTextColor(...hexRgb(colors.moss));
+    doc.text("Nominee", marginX, (y += 6));
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(...hexRgb(colors.ink));
+    doc.text(`Name: ${nominee.name.trim() || "\u2014"}`, marginX, (y += 6));
+    doc.text(`Relationship to the insured: ${nomineeRelationshipLabel(nominee) || "\u2014"}`, marginX, (y += 6));
+    doc.text(`Contact: ${nominee.contact.trim() || "\u2014"}`, marginX, (y += 6));
 
     y += 2;
     doc.setFont("helvetica", "bold");
@@ -1467,6 +1555,22 @@ export default function MobilePreview() {
                   <span style={{ color: colors.slate }}>Policyholder</span>
                   <span style={{ fontWeight: 700, color: colors.ink }}>{insuredName}</span>
                 </div>
+                {isNomineeComplete(nominee) && (
+                  <>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}>
+                      <span style={{ color: colors.slate }}>Nominee</span>
+                      <span style={{ fontWeight: 700, color: colors.ink }}>{nominee.name}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}>
+                      <span style={{ color: colors.slate }}>Relationship</span>
+                      <span style={{ fontWeight: 700, color: colors.ink }}>{nomineeRelationshipLabel(nominee)}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}>
+                      <span style={{ color: colors.slate }}>Nominee's contact</span>
+                      <span style={{ fontWeight: 700, color: colors.ink }}>{nominee.contact}</span>
+                    </div>
+                  </>
+                )}
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}>
                   <span style={{ color: colors.slate }}>Purchased on</span>
                   <span style={{ fontWeight: 700, color: colors.ink }}>
@@ -1490,8 +1594,25 @@ export default function MobilePreview() {
                   );
                 })}
               </div>
-              <button style={buttonStyle} onClick={renewUnchanged}>Nothing's changed — renew</button>
-              <button style={{ ...buttonStyle, marginTop: 8, background: colors.card, color: colors.mossDeep, border: `1px solid ${colors.moss}` }} onClick={renewWithChanges}>
+              {!isNomineeComplete(nominee) && (
+                <div style={{ marginBottom: 16, background: "#fff7e6", border: "1px solid #e8d5a3", borderRadius: 10, padding: "12px 14px" }}>
+                  <p style={{ fontSize: 12.5, fontWeight: 700, color: colors.ink, margin: "0 0 2px" }}>Add a nominee before renewing</p>
+                  <p style={{ fontSize: 11.5, color: colors.slate, margin: "0 0 10px" }}>There's no nominee on file for this policy.</p>
+                  <NomineeFields nominee={nominee} onChange={setNominee} />
+                </div>
+              )}
+              <button
+                style={{ ...buttonStyle, opacity: isNomineeComplete(nominee) ? 1 : 0.5 }}
+                disabled={!isNomineeComplete(nominee)}
+                onClick={renewUnchanged}
+              >
+                Nothing's changed — renew
+              </button>
+              <button
+                style={{ ...buttonStyle, marginTop: 8, background: colors.card, color: colors.mossDeep, border: `1px solid ${colors.moss}`, opacity: isNomineeComplete(nominee) ? 1 : 0.5 }}
+                disabled={!isNomineeComplete(nominee)}
+                onClick={renewWithChanges}
+              >
                 Something's changed — update details
               </button>
             </>
@@ -1702,11 +1823,19 @@ export default function MobilePreview() {
 
           {screen === "kyc" && selectedProduct && (
             <>
-              <p style={{ fontSize: 13, color: colors.slate, margin: "0 0 14px" }}>Upload these documents before you can pay.</p>
+              <p style={{ fontSize: 13, color: colors.slate, margin: "0 0 14px" }}>A few proposal details, then the documents to upload.</p>
               <div style={{ marginBottom: 14 }}>
                 <label style={{ fontSize: 12, fontWeight: 600, color: colors.slate, display: "block", marginBottom: 4 }}>Full name (as it appears on your documents)</label>
                 <input type="text" value={insuredName} onChange={(e) => setInsuredName(e.target.value)} style={inputStyle} placeholder="e.g. Aarav Sharma" />
               </div>
+
+              <div style={{ borderTop: `1px solid ${colors.line}`, paddingTop: 12 }}>
+                <p style={{ fontSize: 13, fontWeight: 700, color: colors.ink, margin: "0 0 2px" }}>Nominee</p>
+                <p style={{ fontSize: 11.5, color: colors.slate, margin: "0 0 10px" }}>Who the insurer pays a claim to if it can't be paid to you.</p>
+                <NomineeFields nominee={nominee} onChange={setNominee} />
+              </div>
+
+              <p style={{ fontSize: 13, fontWeight: 700, color: colors.ink, margin: "2px 0 0", borderTop: `1px solid ${colors.line}`, paddingTop: 12 }}>Documents</p>
               <div style={{ display: "flex", flexDirection: "column" }}>
                 {selectedProduct.docsRequired.map((doc) => (
                   <div key={doc.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${colors.line}` }}>
@@ -1727,8 +1856,8 @@ export default function MobilePreview() {
                 ))}
               </div>
               <button
-                style={{ ...buttonStyle, marginTop: 16, opacity: selectedProduct.docsRequired.every((d) => docs[d.key]) && insuredName.trim() ? 1 : 0.5 }}
-                disabled={!selectedProduct.docsRequired.every((d) => docs[d.key]) || !insuredName.trim()}
+                style={{ ...buttonStyle, marginTop: 16, opacity: selectedProduct.docsRequired.every((d) => docs[d.key]) && insuredName.trim() && isNomineeComplete(nominee) ? 1 : 0.5 }}
+                disabled={!selectedProduct.docsRequired.every((d) => docs[d.key]) || !insuredName.trim() || !isNomineeComplete(nominee)}
                 onClick={() => setScreen("payment")}
               >
                 Submit for review
