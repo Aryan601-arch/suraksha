@@ -404,21 +404,26 @@ const PRODUCTS = [
 // All 14 non-life insurers currently licensed by the Nepal Insurance
 // Authority (as of May 2026) — this list itself is real. The pricing
 // "factor" on each is still an invented placeholder for demo purposes only.
+// `code` is the short prefix that goes at the front of a policy number issued
+// by that insurer. Policy numbers used to be hardcoded "SICL-" for all 14,
+// so a policy bought from Oriental came back numbered as if Shikhar had
+// issued it. These are plain abbreviations of each company's name for the
+// prototype, not official Nepal Insurance Authority registry codes.
 const INSURERS = [
-  { id: "nepal-insurance", name: "Nepal Insurance Company", factor: 1.02 },
-  { id: "oriental", name: "The Oriental Insurance Company", factor: 0.97 },
-  { id: "national", name: "National Insurance Company", factor: 1.05 },
-  { id: "himalayan-everest", name: "Himalayan Everest Insurance", factor: 0.95 },
-  { id: "united-ajod", name: "United Ajod Insurance", factor: 0.99 },
-  { id: "neco", name: "Neco Insurance", factor: 1.03 },
-  { id: "sagarmatha", name: "Sagarmatha Lumbini Insurance", factor: 1.07 },
-  { id: "prabhu", name: "Prabhu Insurance", factor: 0.96 },
-  { id: "igi-prudential", name: "IGI Prudential Insurance", factor: 1.01 },
-  { id: "shikhar", name: "Shikhar Insurance", factor: 1.0 },
-  { id: "nlg", name: "NLG Insurance", factor: 0.93 },
-  { id: "siddhartha-premier", name: "Siddhartha Premier Insurance", factor: 0.98 },
-  { id: "rastriya-beema", name: "Rastriya Beema Company", factor: 1.04 },
-  { id: "sanima-gic", name: "Sanima GIC Insurance", factor: 0.94 },
+  { id: "nepal-insurance", name: "Nepal Insurance Company", code: "NICL", factor: 1.02 },
+  { id: "oriental", name: "The Oriental Insurance Company", code: "OICN", factor: 0.97 },
+  { id: "national", name: "National Insurance Company", code: "NATL", factor: 1.05 },
+  { id: "himalayan-everest", name: "Himalayan Everest Insurance", code: "HEIL", factor: 0.95 },
+  { id: "united-ajod", name: "United Ajod Insurance", code: "UAIL", factor: 0.99 },
+  { id: "neco", name: "Neco Insurance", code: "NECO", factor: 1.03 },
+  { id: "sagarmatha", name: "Sagarmatha Lumbini Insurance", code: "SLIC", factor: 1.07 },
+  { id: "prabhu", name: "Prabhu Insurance", code: "PRIN", factor: 0.96 },
+  { id: "igi-prudential", name: "IGI Prudential Insurance", code: "IGIP", factor: 1.01 },
+  { id: "shikhar", name: "Shikhar Insurance", code: "SICL", factor: 1.0 },
+  { id: "nlg", name: "NLG Insurance", code: "NLGI", factor: 0.93 },
+  { id: "siddhartha-premier", name: "Siddhartha Premier Insurance", code: "SPIL", factor: 0.98 },
+  { id: "rastriya-beema", name: "Rastriya Beema Company", code: "RBCL", factor: 1.04 },
+  { id: "sanima-gic", name: "Sanima GIC Insurance", code: "SGIC", factor: 0.94 },
 ];
 
 // ---- Placeholder rate tables, one shape per rate_structure_type ----
@@ -1077,6 +1082,23 @@ function NomineeFields({ nominee, onChange }) {
   );
 }
 
+// One format for "when was this policy taken", used on the details check, the
+// payment receipt and the PDF, so the same policy reads the same everywhere.
+// A record written before timestamps were stored has no date at all, hence the
+// guard rather than an "Invalid Date" on screen.
+function formatPolicyTaken(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export default function MobilePreview() {
   const [screen, setScreen] = useState("home");
   const [activeCategory, setActiveCategory] = useState(null);
@@ -1089,6 +1111,10 @@ export default function MobilePreview() {
   const [nominee, setNominee] = useState(EMPTY_NOMINEE);
   const [paymentStatus, setPaymentStatus] = useState(null); // null | "processing" | "success"
   const [policyNumber, setPolicyNumber] = useState(null);
+  // The exact moment this policy was paid for. Held in state rather than read
+  // off the clock when the PDF is generated, so a cover note downloaded later
+  // still carries the time the cover actually started.
+  const [policyIssuedAt, setPolicyIssuedAt] = useState(null);
   const [usdRateInfo, setUsdRateInfo] = useState({ status: "idle", rate: null, date: null, currency: null });
   const [coverageOpen, setCoverageOpen] = useState(null); // null, or one of: "disability", "riders", "exclusions"
 
@@ -1174,6 +1200,7 @@ export default function MobilePreview() {
     setNominee(EMPTY_NOMINEE);
     setPaymentStatus(null);
     setPolicyNumber(null);
+    setPolicyIssuedAt(null);
     setCoverageOpen(null);
     setRenewalContext(null);
     setScreen("product");
@@ -1223,6 +1250,7 @@ export default function MobilePreview() {
     setQuote(null);
     setPaymentStatus(null);
     setPolicyNumber(null);
+    setPolicyIssuedAt(null);
     setRenewalContext({ originalPolicyNumber: record.policyNumber, purchaseDate: record.purchaseDate, priorNet: record.quoteNet });
     setScreen("renew-check");
     if (product.rateStructureType === "usd_base") {
@@ -1251,10 +1279,13 @@ export default function MobilePreview() {
     setPaymentStatus("processing");
     setTimeout(() => {
       const productCode = selectedProduct.id.replace(/[^a-z0-9]/gi, "").toUpperCase().slice(0, 6);
-      const year = new Date().getFullYear();
+      const issuedAt = new Date();
       const serial = String(Math.floor(Math.random() * 90000) + 10000);
-      const newPolicyNumber = `SICL-${productCode}-${year}-${serial}`;
+      // Prefix is the issuing insurer's own code, so the number on the policy
+      // matches the company that actually wrote it.
+      const newPolicyNumber = `${selectedInsurer.code}-${productCode}-${issuedAt.getFullYear()}-${serial}`;
       setPolicyNumber(newPolicyNumber);
+      setPolicyIssuedAt(issuedAt.toISOString());
       savePolicyRecord({
         policyNumber: newPolicyNumber,
         productId: selectedProduct.id,
@@ -1265,7 +1296,7 @@ export default function MobilePreview() {
         docs,
         quoteRows: quote.rows,
         quoteNet: quote.net,
-        purchaseDate: new Date().toISOString(),
+        purchaseDate: issuedAt.toISOString(),
         renewedFrom: renewalContext?.originalPolicyNumber ?? null,
       });
       setPaymentStatus("success");
@@ -1315,7 +1346,7 @@ export default function MobilePreview() {
     doc.setTextColor(...hexRgb(colors.ink));
     const headerRows = [
       ["Policy number", policyNumber || "—"],
-      ["Issue date", new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" })],
+      ["Issued on", formatPolicyTaken(policyIssuedAt)],
       ["Insurer", selectedInsurer?.name || "—"],
       ["Product", selectedProduct?.name || "—"],
       ["Policyholder", insuredName || "—"],
@@ -1517,7 +1548,7 @@ export default function MobilePreview() {
                   value={renewalLookup}
                   onChange={(e) => setRenewalLookup(e.target.value)}
                   style={inputStyle}
-                  placeholder="e.g. SICL-PAINDI-2026-71660"
+                  placeholder="e.g. NICL-PAINDI-2026-71660"
                 />
               </div>
               {renewalLookupError && (
@@ -1540,11 +1571,15 @@ export default function MobilePreview() {
             <>
               <p style={{ fontSize: 13, fontWeight: 700, color: colors.ink, margin: "0 0 4px" }}>Details check</p>
               <p style={{ fontSize: 12, color: colors.slate, margin: "0 0 14px" }}>
-                Here's what's on file for policy {renewalContext.originalPolicyNumber}. Let us know if anything's changed before we renew it.
+                Here's what's on file for this policy. Let us know if anything's changed before we renew it.
               </p>
               <div style={{ background: colors.card, border: `1px solid ${colors.line}`, borderRadius: 10, padding: "12px 14px", marginBottom: 16 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}>
-                  <span style={{ color: colors.slate }}>Insurer</span>
+                  <span style={{ color: colors.slate }}>Policy number</span>
+                  <span style={{ fontWeight: 700, color: colors.ink }}>{renewalContext.originalPolicyNumber}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}>
+                  <span style={{ color: colors.slate }}>Taken from</span>
                   <span style={{ fontWeight: 700, color: colors.ink }}>{selectedInsurer.name}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}>
@@ -1572,10 +1607,8 @@ export default function MobilePreview() {
                   </>
                 )}
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}>
-                  <span style={{ color: colors.slate }}>Purchased on</span>
-                  <span style={{ fontWeight: 700, color: colors.ink }}>
-                    {new Date(renewalContext.purchaseDate).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
-                  </span>
+                  <span style={{ color: colors.slate }}>Taken on</span>
+                  <span style={{ fontWeight: 700, color: colors.ink }}>{formatPolicyTaken(renewalContext.purchaseDate)}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}>
                   <span style={{ color: colors.slate }}>Last premium paid</span>
@@ -1874,7 +1907,9 @@ export default function MobilePreview() {
                   </div>
                   <p style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>{renewalContext ? "Policy renewed" : "Payment received"}</p>
                   <p style={{ fontSize: 13, color: colors.slate, marginBottom: 4 }}>Rs. {quote?.net.toLocaleString()} paid for {selectedProduct?.name}</p>
-                  <p style={{ fontSize: 12, color: colors.slate, marginBottom: renewalContext ? 2 : 20 }}>Policy number: {policyNumber}</p>
+                  <p style={{ fontSize: 12, color: colors.slate, marginBottom: 2 }}>Policy number: {policyNumber}</p>
+                  <p style={{ fontSize: 12, color: colors.slate, marginBottom: 2 }}>Taken from: {selectedInsurer?.name}</p>
+                  <p style={{ fontSize: 12, color: colors.slate, marginBottom: renewalContext ? 2 : 20 }}>Taken on: {formatPolicyTaken(policyIssuedAt)}</p>
                   {renewalContext && (
                     <>
                       <p style={{ fontSize: 12, color: colors.slate, marginBottom: 2 }}>Renewed from: {renewalContext.originalPolicyNumber}</p>
