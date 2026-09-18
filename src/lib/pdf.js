@@ -4,13 +4,15 @@ import { formatFieldValue, formatPolicyTaken, isHiddenField } from "./format.js"
 import { COVERAGE_SCHEDULES } from "../data/coverageSchedules.js";
 import { formatDate, termLabel, TERM_SINGLE_TRANSIT } from "./policyTerm.js";
 import { nomineeRelationshipLabel } from "./nominee.js";
+import { effectiveCurrentAddress, formatAddress, genderLabel, incomeBandLabel, occupationLabel } from "./kyc.js";
+import { PROVINCES } from "../data/nepal.js";
 import { isIndicative, offerFor } from "./offers.js";
 
 // Builds a cover-note PDF entirely client-side — there's no backend to generate
 // or store this on, so it is generated fresh in the browser from the same
 // product/form/quote state already on screen, and handed to the customer as an
 // immediate download.
-export function downloadPolicyPdf({ policyNumber, issuedAt, insurer, product, form, quote, insuredName, nominee, term, renewalContext, docs }) {
+export function downloadPolicyPdf({ policyNumber, issuedAt, insurer, product, form, quote, insuredName, kyc, nominee, term, renewalContext, docs }) {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
   const marginX = 18;
@@ -81,6 +83,47 @@ export function downloadPolicyPdf({ policyNumber, issuedAt, insurer, product, fo
     if (isHiddenField(field, form)) return;
     doc.text(`${field.label}: ${formatFieldValue(field, form[field.key])}`, marginX, (y += 6));
   });
+
+  // The proposer's own details. A cover note that names a policyholder but
+  // cannot say which Aarav Sharma it means is not an identifying document, and
+  // these are exactly the particulars a Nepali insurer records on the proposal.
+  if (kyc) {
+    if (y > 210) { doc.addPage(); y = 20; }
+    y += 2;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11.5);
+    doc.setTextColor(...hexRgb(colors.moss));
+    doc.text("Proposer", marginX, (y += 6));
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(...hexRgb(colors.ink));
+    const provinceName = (id) => PROVINCES.find((p) => p.id === id)?.name || "";
+    const dash = "\u2014";
+    const permanent = formatAddress(kyc.permanent, provinceName(kyc.permanent?.province));
+    const current = formatAddress(effectiveCurrentAddress(kyc), provinceName(effectiveCurrentAddress(kyc).province));
+    [
+      ["Date of birth", kyc.dob || dash],
+      ["Gender", genderLabel(kyc) || dash],
+      ["Father's name", (kyc.fatherName || "").trim() || dash],
+      ["Grandfather's name", (kyc.grandfatherName || "").trim() || dash],
+      ["Citizenship no.", [(kyc.citizenshipNumber || "").trim(), kyc.citizenshipDistrict && `issued in ${kyc.citizenshipDistrict}`, kyc.citizenshipIssuedBs && `on ${kyc.citizenshipIssuedBs} BS`].filter(Boolean).join(", ") || dash],
+      ...(String(kyc.nid || "").trim() ? [["National ID", kyc.nid.trim()]] : []),
+      ...(String(kyc.pan || "").trim() ? [["PAN", kyc.pan.trim()]] : []),
+      ["Permanent address", permanent || dash],
+      // Only worth a line of its own when it differs from the permanent one.
+      ...(!kyc.currentSameAsPermanent && current && current !== permanent ? [["Current address", current]] : []),
+      ["Mobile", (kyc.mobile || "").trim() || dash],
+      ...(String(kyc.email || "").trim() ? [["Email", kyc.email.trim()]] : []),
+      ["Occupation", occupationLabel(kyc) || dash],
+      ["Annual income", incomeBandLabel(kyc) || dash],
+      ["Politically exposed person", kyc.pep === "yes" ? "Yes" : kyc.pep === "no" ? "No" : dash],
+    ].forEach(([label, value]) => {
+      if (y > 272) { doc.addPage(); y = 20; }
+      const wrapped = doc.splitTextToSize(`${label}: ${value}`, pageWidth - marginX * 2);
+      doc.text(wrapped, marginX, (y += 6));
+      y += (wrapped.length - 1) * 5;
+    });
+  }
 
   if (y > 240) { doc.addPage(); y = 20; }
   y += 2;

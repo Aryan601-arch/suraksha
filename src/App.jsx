@@ -9,6 +9,7 @@ import { calc, nrbRateFieldKey } from "./lib/calc.js";
 import { fetchNrbRate } from "./lib/nrb.js";
 import { docsForStorage } from "./lib/documents.js";
 import { EMPTY_NOMINEE } from "./lib/nominee.js";
+import { EMPTY_KYC, kycForStorage } from "./lib/kyc.js";
 import { makePolicyNumber } from "./lib/policyNumber.js";
 import { listPolicyRecords, loadPolicyRecord, savePolicyRecord } from "./lib/policyStore.js";
 import { policyStatus, policyTerm, renewalStart } from "./lib/policyTerm.js";
@@ -47,6 +48,7 @@ export default function MobilePreview() {
   const [docErrors, setDocErrors] = useState({});
   const [insuredName, setInsuredName] = useState("");
   const [nominee, setNominee] = useState(EMPTY_NOMINEE);
+  const [kyc, setKyc] = useState(EMPTY_KYC);
   const [paymentStatus, setPaymentStatus] = useState(null); // null | "processing" | "success"
   const [policyNumber, setPolicyNumber] = useState(null);
   // The exact moment this policy was paid for. Held in state rather than read
@@ -110,6 +112,7 @@ export default function MobilePreview() {
     setDocErrors({});
     setInsuredName("");
     setNominee(EMPTY_NOMINEE);
+    setKyc(EMPTY_KYC);
     setPaymentStatus(null);
     setPolicyNumber(null);
     setPolicyIssuedAt(null);
@@ -146,6 +149,7 @@ export default function MobilePreview() {
     setForm(record.form);
     setInsuredName(record.insuredName);
     setNominee({ ...EMPTY_NOMINEE, ...(record.nominee || {}) });
+    setKyc({ ...EMPTY_KYC, ...(record.kyc || {}) });
     setDocs(record.docs || {});
     setDocErrors({});
     setQuote(null);
@@ -212,6 +216,7 @@ export default function MobilePreview() {
         form,
         insuredName,
         nominee,
+        kyc: kycForStorage(kyc),
         docs: docsForStorage(docs),
         quoteRows: quote.rows,
         quoteNet: quote.net,
@@ -237,7 +242,7 @@ export default function MobilePreview() {
     : screen === "renew-lookup" ? "Renew a policy"
     : screen === "renew-check" ? "Details check"
     : screen === "insurers" ? selectedProduct?.name
-    : screen === "kyc" ? "Documents"
+    : screen === "kyc" ? "Your details"
     : screen === "payment" ? "Payment"
     : `${selectedProduct?.name} — ${selectedInsurer?.name}`;
 
@@ -339,8 +344,10 @@ export default function MobilePreview() {
               docs={docs}
               docErrors={docErrors}
               insuredName={insuredName}
+              kyc={kyc}
               nominee={nominee}
               onNameChange={setInsuredName}
+              onKycChange={setKyc}
               onNomineeChange={setNominee}
               onAttach={(key, attachment) => {
                 setDocs((d) => ({ ...d, [key]: attachment }));
@@ -374,6 +381,7 @@ export default function MobilePreview() {
                   form,
                   quote,
                   insuredName,
+                  kyc,
                   nominee,
                   term,
                   renewalContext,
