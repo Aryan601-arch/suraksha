@@ -1,6 +1,6 @@
 import { jsPDF } from "jspdf";
 import { colors, hexRgb } from "../theme.js";
-import { formatFieldValue, isHiddenField } from "./format.js";
+import { formatFieldValue, formatPolicyTaken, isHiddenField } from "./format.js";
 import { COVERAGE_SCHEDULES } from "../data/coverageSchedules.js";
 import { formatDate, termLabel, TERM_SINGLE_TRANSIT } from "./policyTerm.js";
 import { nomineeRelationshipLabel } from "./nominee.js";
@@ -9,7 +9,7 @@ import { nomineeRelationshipLabel } from "./nominee.js";
 // or store this on, so it is generated fresh in the browser from the same
 // product/form/quote state already on screen, and handed to the customer as an
 // immediate download.
-export function downloadPolicyPdf({ policyNumber, insurer, product, form, quote, insuredName, nominee, term, renewalContext, docs }) {
+export function downloadPolicyPdf({ policyNumber, issuedAt, insurer, product, form, quote, insuredName, nominee, term, renewalContext, docs }) {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
   const marginX = 18;
@@ -37,7 +37,10 @@ export function downloadPolicyPdf({ policyNumber, insurer, product, form, quote,
   doc.setTextColor(...hexRgb(colors.ink));
   const headerRows = [
     ["Policy number", policyNumber || "—"],
-    ["Issue date", new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" })],
+    // The moment the policy was actually paid for, not the moment the PDF was
+    // generated — a cover note downloaded later still has to say when cover
+    // started.
+    ["Issued on", formatPolicyTaken(issuedAt)],
     ["Insurer", insurer?.name || "—"],
     ["Product", product?.name || "—"],
     ["Policyholder", insuredName || "—"],

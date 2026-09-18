@@ -8,6 +8,7 @@ import { calc, nrbRateFieldKey } from "./lib/calc.js";
 import { fetchNrbRate } from "./lib/nrb.js";
 import { docsForStorage } from "./lib/documents.js";
 import { EMPTY_NOMINEE } from "./lib/nominee.js";
+import { makePolicyNumber } from "./lib/policyNumber.js";
 import { listPolicyRecords, loadPolicyRecord, savePolicyRecord } from "./lib/policyStore.js";
 import { policyStatus, policyTerm, renewalStart } from "./lib/policyTerm.js";
 import { downloadPolicyPdf } from "./lib/pdf.js";
@@ -47,6 +48,10 @@ export default function MobilePreview() {
   const [nominee, setNominee] = useState(EMPTY_NOMINEE);
   const [paymentStatus, setPaymentStatus] = useState(null); // null | "processing" | "success"
   const [policyNumber, setPolicyNumber] = useState(null);
+  // The exact moment this policy was paid for. Held in state rather than read
+  // off the clock when the PDF is generated, so a cover note downloaded later
+  // still carries the time the cover actually started.
+  const [policyIssuedAt, setPolicyIssuedAt] = useState(null);
   const [storeWarning, setStoreWarning] = useState(null);
   const [rateInfo, setRateInfo] = useState({ status: "idle", rate: null, date: null, currency: null });
   const [coverageOpen, setCoverageOpen] = useState(null); // null, or one of: "disability", "riders", "exclusions"
@@ -106,6 +111,7 @@ export default function MobilePreview() {
     setNominee(EMPTY_NOMINEE);
     setPaymentStatus(null);
     setPolicyNumber(null);
+    setPolicyIssuedAt(null);
     setStoreWarning(null);
     setCoverageOpen(null);
     setRenewalContext(null);
@@ -144,6 +150,7 @@ export default function MobilePreview() {
     setQuote(null);
     setPaymentStatus(null);
     setPolicyNumber(null);
+    setPolicyIssuedAt(null);
     setStoreWarning(null);
     setCoverageOpen(null);
     setRenewalOrigin(origin);
@@ -193,11 +200,10 @@ export default function MobilePreview() {
   function pay(gateway) {
     setPaymentStatus("processing");
     setTimeout(() => {
-      const productCode = selectedProduct.id.replace(/[^a-z0-9]/gi, "").toUpperCase().slice(0, 6);
-      const year = new Date().getFullYear();
-      const serial = String(Math.floor(Math.random() * 90000) + 10000);
-      const newPolicyNumber = `SICL-${productCode}-${year}-${serial}`;
+      const issuedAt = new Date();
+      const newPolicyNumber = makePolicyNumber(selectedProduct, selectedInsurer, issuedAt);
       setPolicyNumber(newPolicyNumber);
+      setPolicyIssuedAt(issuedAt.toISOString());
       const saved = savePolicyRecord({
         policyNumber: newPolicyNumber,
         productId: selectedProduct.id,
@@ -208,7 +214,7 @@ export default function MobilePreview() {
         docs: docsForStorage(docs),
         quoteRows: quote.rows,
         quoteNet: quote.net,
-        purchaseDate: new Date().toISOString(),
+        purchaseDate: issuedAt.toISOString(),
         term,
         renewedFrom: renewalContext?.originalPolicyNumber ?? null,
       });
@@ -347,9 +353,11 @@ export default function MobilePreview() {
           {screen === "payment" && (
             <PaymentScreen
               product={selectedProduct}
+              insurer={selectedInsurer}
               quote={quote}
               term={term}
               policyNumber={policyNumber}
+              issuedAt={policyIssuedAt}
               paymentStatus={paymentStatus}
               renewalContext={renewalContext}
               storeWarning={storeWarning}
@@ -358,6 +366,7 @@ export default function MobilePreview() {
               onDownloadPdf={() =>
                 downloadPolicyPdf({
                   policyNumber,
+                  issuedAt: policyIssuedAt,
                   insurer: selectedInsurer,
                   product: selectedProduct,
                   form,

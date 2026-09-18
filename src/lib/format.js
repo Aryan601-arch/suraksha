@@ -21,3 +21,20 @@ export function isHiddenField(field, form) {
 export function npr(amount) {
   return `Rs. ${Number(amount || 0).toLocaleString()}`;
 }
+
+// One format for "when was this policy taken", used on the details check, the
+// payment receipt and the PDF, so the same policy reads the same everywhere.
+// A record written before timestamps were stored has no date at all, hence the
+// guard rather than an "Invalid Date" on screen.
+export function formatPolicyTaken(iso) {
+  if (!iso) return "\u2014";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "\u2014";
+  return d.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}

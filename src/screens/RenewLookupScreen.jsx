@@ -24,7 +24,7 @@ export default function RenewLookupScreen({ policyNumber, insurerId, error, onPo
           value={policyNumber}
           onChange={(e) => onPolicyNumberChange(e.target.value)}
           style={inputStyle}
-          placeholder="e.g. SICL-PAINDI-2026-71660"
+          placeholder="e.g. NICL-PAINDI-2026-71660"
         />
       </div>
       {error && <p style={{ fontSize: 12, color: "#a33", marginBottom: 12 }}>{error}</p>}

@@ -1,5 +1,5 @@
 import { colors, buttonStyle, secondaryButtonStyle } from "../theme.js";
-import { formatFieldValue, isHiddenField, npr } from "../lib/format.js";
+import { formatFieldValue, formatPolicyTaken, isHiddenField, npr } from "../lib/format.js";
 import { formatDate, policyStatus, termLabel } from "../lib/policyTerm.js";
 import { isNomineeComplete, nomineeRelationshipLabel } from "../lib/nominee.js";
 import NomineeFields from "./NomineeFields.jsx";
@@ -22,11 +22,12 @@ export default function RenewCheckScreen({ product, insurer, form, insuredName, 
     <>
       <p style={{ fontSize: 13, fontWeight: 700, color: colors.ink, margin: "0 0 4px" }}>Details check</p>
       <p style={{ fontSize: 12, color: colors.slate, margin: "0 0 14px" }}>
-        Here's what's on file for policy {renewalContext.originalPolicyNumber}. Let us know if anything's changed before we renew it.
+        Here's what's on file for this policy. Let us know if anything's changed before we renew it.
       </p>
 
       <div style={{ background: colors.card, border: `1px solid ${colors.line}`, borderRadius: 10, padding: "12px 14px", marginBottom: 16 }}>
-        <Row label="Insurer" value={insurer.name} />
+        <Row label="Policy number" value={renewalContext.originalPolicyNumber} />
+        <Row label="Taken from" value={insurer.name} />
         <Row label="Product" value={product.name} />
         <Row label="Policyholder" value={insuredName} />
         {nomineeOnFile && (
@@ -36,10 +37,7 @@ export default function RenewCheckScreen({ product, insurer, form, insuredName, 
             <Row label="Nominee's contact" value={nominee.contact} />
           </>
         )}
-        <Row
-          label="Purchased on"
-          value={new Date(renewalContext.purchaseDate).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
-        />
+        <Row label="Taken on" value={formatPolicyTaken(renewalContext.purchaseDate)} />
         {renewalContext.priorTerm?.expiryDate && (
           <Row
             label="Current cover ends"

@@ -83,9 +83,9 @@ describe("policy store", () => {
   afterEach(() => { globalThis.localStorage = original; });
 
   const record = (over = {}) => ({
-    policyNumber: "SICL-MOTOR1-2026-11111",
+    policyNumber: "OICN-MOTOR1-2026-11111",
     productId: "motor-1",
-    insurerId: "shikhar",
+    insurerId: "oriental",
     form: {},
     insuredName: "Aarav Sharma",
     docs: {},
@@ -97,12 +97,12 @@ describe("policy store", () => {
 
   it("saves and reads a policy back by number", () => {
     expect(savePolicyRecord(record())).toBe(true);
-    expect(loadPolicyRecord("SICL-MOTOR1-2026-11111").insuredName).toBe("Aarav Sharma");
+    expect(loadPolicyRecord("OICN-MOTOR1-2026-11111").insuredName).toBe("Aarav Sharma");
   });
 
   it("ignores stray whitespace in a typed policy number", () => {
     savePolicyRecord(record());
-    expect(loadPolicyRecord("  SICL-MOTOR1-2026-11111  ")).toBeTruthy();
+    expect(loadPolicyRecord("  OICN-MOTOR1-2026-11111  ")).toBeTruthy();
   });
 
   it("returns nothing rather than throwing when storage is unavailable", () => {

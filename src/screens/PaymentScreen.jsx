@@ -1,11 +1,11 @@
 import { Check, ChevronRight } from "lucide-react";
 import { colors, buttonStyle, secondaryButtonStyle } from "../theme.js";
-import { npr } from "../lib/format.js";
+import { formatPolicyTaken, npr } from "../lib/format.js";
 import { formatDate, termLabel, TERM_SINGLE_TRANSIT } from "../lib/policyTerm.js";
 
 const GATEWAYS = ["eSewa", "Khalti", "ConnectIPS"];
 
-export default function PaymentScreen({ product, quote, term, policyNumber, paymentStatus, renewalContext, storeWarning, onPay, onDownloadPdf, onDone }) {
+export default function PaymentScreen({ product, insurer, quote, term, policyNumber, issuedAt, paymentStatus, renewalContext, storeWarning, onPay, onDownloadPdf, onDone }) {
   if (paymentStatus === "success") {
     return (
       <div style={{ textAlign: "center", paddingTop: 24 }}>
@@ -15,6 +15,8 @@ export default function PaymentScreen({ product, quote, term, policyNumber, paym
         <p style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>{renewalContext ? "Policy renewed" : "Payment received"}</p>
         <p style={{ fontSize: 13, color: colors.slate, marginBottom: 4 }}>{npr(quote?.net)} paid for {product?.name}</p>
         <p style={{ fontSize: 12, color: colors.slate, marginBottom: 2 }}>Policy number: {policyNumber}</p>
+        <p style={{ fontSize: 12, color: colors.slate, marginBottom: 2 }}>Taken from: {insurer?.name}</p>
+        <p style={{ fontSize: 12, color: colors.slate, marginBottom: 2 }}>Taken on: {formatPolicyTaken(issuedAt)}</p>
         {term && term.kind !== TERM_SINGLE_TRANSIT ? (
           <p style={{ fontSize: 12, color: colors.slate, marginBottom: 2 }}>
             Cover runs {formatDate(term.startDate)} to {formatDate(term.expiryDate)}
