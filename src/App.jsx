@@ -402,29 +402,297 @@ const PRODUCTS = [
 ];
 
 // All 14 non-life insurers currently licensed by the Nepal Insurance
-// Authority (as of May 2026) — this list itself is real. The pricing
-// "factor" on each is still an invented placeholder for demo purposes only.
-// `code` is the short prefix that goes at the front of a policy number issued
-// by that insurer. Policy numbers used to be hardcoded "SICL-" for all 14,
-// so a policy bought from Oriental came back numbered as if Shikhar had
-// issued it. These are plain abbreviations of each company's name for the
-// prototype, not official Nepal Insurance Authority registry codes.
+// Authority (as of May 2026). `claimRatio` is each insurer's published claim
+// settlement ratio — a real, insurer-specific number, and the axis on which
+// these companies most clearly and verifiably differ.
+//
+// There is deliberately no per-insurer pricing "factor" here any more. On
+// Nepal's tariffed non-life lines (motor, fire/property, accident, marine)
+// the Authority sets the rate and every insurer quotes it, so a multiplier
+// that made one insurer permanently 7% dearer than another was inventing a
+// difference that does not exist in the market. Where an insurer genuinely
+// publishes its own rate for a line, that rate lives in INSURER_PRODUCTS.
+//
+// `code` is the short prefix at the front of a policy number issued by that
+// insurer, so a policy bought from Oriental is not numbered as if Shikhar
+// had issued it. Plain abbreviations for the prototype, not official Nepal
+// Insurance Authority registry codes.
+//
+// Claim ratios: BFIS Compare's non-life listings, read 18 Sep 2026
+// (https://bfis.nepsetrading.com/en/insurance/non-life). Rastriya Beema and
+// National Insurance publish none there, hence null.
 const INSURERS = [
-  { id: "nepal-insurance", name: "Nepal Insurance Company", code: "NICL", factor: 1.02 },
-  { id: "oriental", name: "The Oriental Insurance Company", code: "OICN", factor: 0.97 },
-  { id: "national", name: "National Insurance Company", code: "NATL", factor: 1.05 },
-  { id: "himalayan-everest", name: "Himalayan Everest Insurance", code: "HEIL", factor: 0.95 },
-  { id: "united-ajod", name: "United Ajod Insurance", code: "UAIL", factor: 0.99 },
-  { id: "neco", name: "Neco Insurance", code: "NECO", factor: 1.03 },
-  { id: "sagarmatha", name: "Sagarmatha Lumbini Insurance", code: "SLIC", factor: 1.07 },
-  { id: "prabhu", name: "Prabhu Insurance", code: "PRIN", factor: 0.96 },
-  { id: "igi-prudential", name: "IGI Prudential Insurance", code: "IGIP", factor: 1.01 },
-  { id: "shikhar", name: "Shikhar Insurance", code: "SICL", factor: 1.0 },
-  { id: "nlg", name: "NLG Insurance", code: "NLGI", factor: 0.93 },
-  { id: "siddhartha-premier", name: "Siddhartha Premier Insurance", code: "SPIL", factor: 0.98 },
-  { id: "rastriya-beema", name: "Rastriya Beema Company", code: "RBCL", factor: 1.04 },
-  { id: "sanima-gic", name: "Sanima GIC Insurance", code: "SGIC", factor: 0.94 },
+  { id: "nepal-insurance", name: "Nepal Insurance Company", code: "NICL", claimRatio: 74 },
+  { id: "oriental", name: "The Oriental Insurance Company", code: "OICN", claimRatio: 80.02 },
+  { id: "national", name: "National Insurance Company", code: "NATL", claimRatio: null },
+  { id: "himalayan-everest", name: "Himalayan Everest Insurance", code: "HEIL", claimRatio: 98.31 },
+  { id: "united-ajod", name: "United Ajod Insurance", code: "UAIL", claimRatio: 65.87 },
+  { id: "neco", name: "Neco Insurance", code: "NECO", claimRatio: 70 },
+  { id: "sagarmatha", name: "Sagarmatha Lumbini Insurance", code: "SLIC", claimRatio: 78.14 },
+  { id: "prabhu", name: "Prabhu Insurance", code: "PRIN", claimRatio: 85.84 },
+  { id: "igi-prudential", name: "IGI Prudential Insurance", code: "IGIP", claimRatio: 62 },
+  { id: "shikhar", name: "Shikhar Insurance", code: "SICL", claimRatio: 94 },
+  { id: "nlg", name: "NLG Insurance", code: "NLGI", claimRatio: 69 },
+  { id: "siddhartha-premier", name: "Siddhartha Premier Insurance", code: "SPIL", claimRatio: 89.94 },
+  { id: "rastriya-beema", name: "Rastriya Beema Company", code: "RBCL", claimRatio: null },
+  { id: "sanima-gic", name: "Sanima GIC Insurance", code: "SGIC", claimRatio: 63.3 },
 ];
+
+const ALL_INSURER_IDS = INSURERS.map((i) => i.id);
+
+// Build a product's insurer map: `entry` for every id in `ids`.
+const offeredBy = (ids, entry) => Object.fromEntries(ids.map((id) => [id, entry]));
+
+// Which insurer sells which product, and on what rating basis:
+//
+//   "tariff"     The insurer prices this line at the common Nepal Insurance
+//                Authority tariff that RATE_TABLES already models. No
+//                insurer-specific number exists, so everyone quotes the same
+//                premium. On these lines that identical price is the real
+//                answer, not a gap in this app.
+//   "published"  The insurer publishes its own rate for this line and
+//                `ratePerMille` is it — it replaces the table's base rate.
+//   "indicative" The insurer sells the cover but quotes only "on request",
+//                so the figure shown is this app's own placeholder and is
+//                labelled as indicative wherever it appears.
+//
+// An insurer absent from a product's map does not sell that product, and is
+// not shown on that product's comparison screen.
+//
+// Availability and every published rate below come from one secondary
+// source — BFIS Compare's non-life listings, read 18 Sep 2026
+// (https://bfis.nepsetrading.com/en/insurance/non-life). That site states its
+// own premium figures are illustrative samples, so a "published" rate here is
+// a comparison-site listing, NOT an insurer's tariff filing with the
+// Authority. None of it has been confirmed against the insurers themselves.
+const INSURER_PRODUCTS = {
+  // --- Motor ---------------------------------------------------------------
+  // A tariff line, and the listings confirm it: the headline rates quoted for
+  // each insurer are the directive's own figures restated. Rs 8.4 and Rs 8.7
+  // per 1,000 are its private-car first-tier rates of 0.84% and 0.87%; Rs 15
+  // per 1,000 is its 1.5% motorcycle rate. So there is no price spread between
+  // insurers on motor, and none is modelled.
+  "motor-1": offeredBy(ALL_INSURER_IDS, { basis: "tariff" }),
+  "private-car-1": offeredBy(ALL_INSURER_IDS, { basis: "tariff" }),
+  // "Auto Plus" is a branded add-on, not a market-wide cover — only these two
+  // sell one, and neither publishes a rate.
+  "auto-plus-1": offeredBy(["igi-prudential", "shikhar"], { basis: "indicative" }),
+
+  // --- Health --------------------------------------------------------------
+  // Retail health is not tariffed, but no insurer publishes a rate table for
+  // it, so every premium on this product is still this app's placeholder.
+  "health-1": offeredBy(
+    ALL_INSURER_IDS.filter((id) => id !== "united-ajod"),
+    { basis: "indicative" }
+  ),
+  // A Shikhar-branded product; nobody else sells it.
+  "shikhar-swasthya-1": { shikhar: { basis: "indicative" } },
+  "group-medical-1": {
+    "nepal-insurance": { basis: "published", ratePerMille: 15 },
+    shikhar: { basis: "indicative" },
+    prabhu: { basis: "indicative" },
+    national: { basis: "indicative" },
+  },
+
+  // --- Travel --------------------------------------------------------------
+  // The USD rate table this app prices from is Oriental's own filed rate, so
+  // it is a published rate for Oriental and a stand-in for everyone else.
+  "travel-1": {
+    oriental: { basis: "published", note: "The rate table this app prices from is Oriental's own 2024 filing." },
+    ...offeredBy(
+      ALL_INSURER_IDS.filter((id) => id !== "oriental" && id !== "igi-prudential"),
+      { basis: "indicative", note: "Priced off Oriental's filed rate table as a stand-in — this insurer's own travel rates are not published." }
+    ),
+  },
+  // Only Oriental's Schengen Euro Plan rate sheet is public.
+  "schengen-1": { oriental: { basis: "published" } },
+  "trekkers-1": offeredBy(["shikhar", "prabhu", "neco"], { basis: "indicative" }),
+
+  // --- Accident ------------------------------------------------------------
+  // Accident Insurance Directive 2078 sets statutory MINIMUM rates, so this is
+  // a tariff line. Neco's listed Rs 2 per 1,000 is exactly the directive's
+  // floor for a 2-25 person group, which confirms it.
+  "pa-1": {
+    ...offeredBy(
+      ["nepal-insurance", "oriental", "national", "himalayan-everest", "united-ajod", "neco", "nlg"],
+      { basis: "tariff" }
+    ),
+    shikhar: { basis: "tariff", note: "Lists Rs 1 per 1,000, below the Directive 2078 Sec. 15(1) minimum of Rs 2 — the statutory floor is applied here instead." },
+    sagarmatha: { basis: "tariff", note: "Lists Rs 1 per 1,000, below the Directive 2078 Sec. 15(1) minimum of Rs 2 — the statutory floor is applied here instead." },
+    "sanima-gic": { basis: "tariff", note: "Lists Rs 1 per 1,000, below the Directive 2078 Sec. 15(1) minimum of Rs 2 — the statutory floor is applied here instead." },
+  },
+  "pa-individual-1": {
+    ...offeredBy(
+      ["nepal-insurance", "oriental", "national", "himalayan-everest", "united-ajod", "neco", "nlg"],
+      { basis: "tariff" }
+    ),
+    shikhar: { basis: "tariff", note: "Lists Rs 1 per 1,000, below the Directive 2078 Sec. 15(1) minimum of Rs 2 — the statutory floor is applied here instead." },
+    sagarmatha: { basis: "tariff", note: "Lists Rs 1 per 1,000, below the Directive 2078 Sec. 15(1) minimum of Rs 2 — the statutory floor is applied here instead." },
+    "sanima-gic": { basis: "tariff", note: "Lists Rs 1 per 1,000, below the Directive 2078 Sec. 15(1) minimum of Rs 2 — the statutory floor is applied here instead." },
+  },
+
+  // --- Property ------------------------------------------------------------
+  // Householder cover is where insurers visibly differ: Shikhar lists the
+  // Directive 2080 tier-1 rate of Rs 0.5 per 1,000, three others list Rs 0.75.
+  "property-1": {
+    shikhar: { basis: "published", ratePerMille: 0.5 },
+    "nepal-insurance": { basis: "published", ratePerMille: 0.75 },
+    neco: { basis: "published", ratePerMille: 0.75 },
+    nlg: { basis: "published", ratePerMille: 0.75 },
+    prabhu: { basis: "indicative" },
+    oriental: { basis: "indicative" },
+  },
+  // Commercial fire/property — the widest genuine spread in the whole app,
+  // Rs 0.4 to Rs 1.0 per 1,000, a 2.5x difference between the cheapest and
+  // dearest insurer on the same cover.
+  "property-commercial-1": {
+    oriental: { basis: "published", ratePerMille: 0.4 },
+    sagarmatha: { basis: "published", ratePerMille: 0.5 },
+    "siddhartha-premier": { basis: "published", ratePerMille: 0.75 },
+    nlg: { basis: "published", ratePerMille: 0.75 },
+    "igi-prudential": { basis: "published", ratePerMille: 0.75 },
+    "rastriya-beema": { basis: "published", ratePerMille: 0.75 },
+    national: { basis: "published", ratePerMille: 0.75 },
+    "nepal-insurance": { basis: "published", ratePerMille: 0.85 },
+    "himalayan-everest": { basis: "published", ratePerMille: 1.0 },
+    shikhar: { basis: "published", ratePerMille: 1.0 },
+    neco: { basis: "published", ratePerMille: 1.0 },
+    "united-ajod": { basis: "published", ratePerMille: 1.0 },
+    "sanima-gic": { basis: "published", ratePerMille: 1.0 },
+    prabhu: { basis: "indicative", note: "Quotes a flat annual figure rather than a rate, so it cannot be applied to an arbitrary sum insured." },
+  },
+
+  // --- Marine --------------------------------------------------------------
+  // Priced off the 2065 directive's per-cargo-category minimum rates, which
+  // every insurer shares. The per-1,000 headline figures the listings show
+  // for marine are on a different basis (a single blended rate rather than a
+  // cargo-category one) and range from Rs 0.25 to Rs 8.7, so they are not
+  // comparable to this table and are not applied.
+  "marine-1": offeredBy(ALL_INSURER_IDS, { basis: "tariff" }),
+
+  // --- Aviation ------------------------------------------------------------
+  // Four of the fourteen do not write aviation at all.
+  "aviation-1": {
+    "himalayan-everest": { basis: "published", ratePerMille: 0.75 },
+    prabhu: { basis: "published", ratePerMille: 0.75 },
+    oriental: { basis: "published", ratePerMille: 0.75 },
+    "rastriya-beema": { basis: "published", ratePerMille: 0.75 },
+    shikhar: { basis: "published", ratePerMille: 1.25 },
+    "igi-prudential": { basis: "published", ratePerMille: 1.5 },
+    sagarmatha: { basis: "published", ratePerMille: 5.0 },
+    "nepal-insurance": { basis: "indicative" },
+    neco: { basis: "indicative" },
+    nlg: { basis: "indicative" },
+  },
+
+  // --- Agri ----------------------------------------------------------------
+  // Oriental and National do not write agriculture. The listed rates for the
+  // rest are irreconcilable — Rs 1.25 per 1,000 against Rs 50 per 1,000 for
+  // the same description — so none is applied and all stay indicative.
+  "agri-1": offeredBy(
+    ALL_INSURER_IDS.filter((id) => id !== "oriental" && id !== "national"),
+    { basis: "indicative", note: "Listed agriculture rates span Rs 1.25 to Rs 50 per 1,000 across insurers, which cannot all be the same basis, so none is used." }
+  ),
+
+  // --- Business ------------------------------------------------------------
+  // Contractors' and Erection All Risk are both written off the same
+  // engineering rate, so they share a map.
+  "contractors-ar-1": {
+    oriental: { basis: "published", ratePerMille: 1.0 },
+    "rastriya-beema": { basis: "published", ratePerMille: 1.0 },
+    "siddhartha-premier": { basis: "published", ratePerMille: 1.5 },
+    "himalayan-everest": { basis: "published", ratePerMille: 2.0 },
+    "united-ajod": { basis: "published", ratePerMille: 2.0 },
+    "igi-prudential": { basis: "published", ratePerMille: 2.0 },
+    nlg: { basis: "published", ratePerMille: 2.5 },
+    sagarmatha: { basis: "published", ratePerMille: 3.0 },
+    shikhar: { basis: "indicative" },
+    prabhu: { basis: "indicative" },
+    "nepal-insurance": { basis: "indicative" },
+    neco: { basis: "indicative" },
+    "sanima-gic": { basis: "indicative" },
+    national: { basis: "indicative" },
+  },
+
+  // The four covers below are sold inside a combined "miscellaneous lines"
+  // policy, and the rate listed is for that whole bucket rather than for the
+  // individual cover — noted on each entry so the quote does not read as a
+  // product-specific rate.
+  "cash-1": {
+    "himalayan-everest": { basis: "published", ratePerMille: 0.75, note: "The insurer's combined miscellaneous-lines rate, not a cash-in-transit rate specifically." },
+    nlg: { basis: "published", ratePerMille: 2.5, note: "The insurer's combined miscellaneous-lines rate, not a cash-in-transit rate specifically." },
+    sagarmatha: { basis: "indicative" },
+    "nepal-insurance": { basis: "indicative" },
+    "united-ajod": { basis: "indicative" },
+    "sanima-gic": { basis: "indicative" },
+    national: { basis: "indicative" },
+  },
+  "bankers-indemnity-1": offeredBy(
+    ["nepal-insurance", "united-ajod", "sagarmatha", "sanima-gic"],
+    { basis: "indicative" }
+  ),
+  "fidelity-1": {
+    "himalayan-everest": { basis: "published", ratePerMille: 0.75, note: "The insurer's combined miscellaneous-lines rate, not a fidelity guarantee rate specifically." },
+    oriental: { basis: "published", ratePerMille: 0.75, note: "The insurer's combined miscellaneous-lines rate, not a fidelity guarantee rate specifically." },
+    nlg: { basis: "published", ratePerMille: 2.5, note: "The insurer's combined miscellaneous-lines rate, not a fidelity guarantee rate specifically." },
+    sagarmatha: { basis: "indicative" },
+    "nepal-insurance": { basis: "indicative" },
+    "united-ajod": { basis: "indicative" },
+    "sanima-gic": { basis: "indicative" },
+  },
+  "public-liability-1": {
+    "himalayan-everest": { basis: "published", ratePerMille: 0.75, note: "The insurer's combined miscellaneous-lines rate, not a public liability rate specifically." },
+    oriental: { basis: "published", ratePerMille: 0.75, note: "The insurer's combined miscellaneous-lines rate, not a public liability rate specifically." },
+    nlg: { basis: "published", ratePerMille: 2.5, note: "The insurer's combined miscellaneous-lines rate, not a public liability rate specifically." },
+    "nepal-insurance": { basis: "indicative" },
+    "sanima-gic": { basis: "indicative" },
+  },
+  // A Shikhar-branded loan-protection product; nobody else sells it.
+  "secure-mind-1": { shikhar: { basis: "indicative" } },
+};
+
+// Erection All Risk is written off the same engineering rate as Contractors'
+// All Risk, by the same insurers.
+INSURER_PRODUCTS["erection-ar-1"] = INSURER_PRODUCTS["contractors-ar-1"];
+
+// Where a product's own rate table came from, when it came from anywhere real.
+// A product missing from this map is priced entirely off invented placeholder
+// figures, and every screen that shows its premium says so.
+const RATE_TABLE_SOURCE = {
+  "motor-1": "NIA Motor Insurance Tariff Directive 2073, Annex 7",
+  "private-car-1": "NIA Motor Insurance Tariff Directive 2073, Annex 8",
+  "travel-1": "Oriental Insurance — Overseas Mediclaim rate filing, 2024",
+  "schengen-1": "Oriental Insurance — Schengen Euro Plan rating, 2025",
+  "pa-1": "Accident Insurance Directive 2078, Sec. 16",
+  "pa-individual-1": "Accident Insurance Directive 2078, Sec. 15",
+  "marine-1": "Marine Insurance Rate Directive 2065, Annex-6",
+  "property-1": "Property Insurance Directive 2080, Annex-16",
+};
+
+// The insurers who sell a product, in the order INSURERS lists them, each
+// carrying the offer that says how it is rated.
+function insurersFor(product) {
+  const map = INSURER_PRODUCTS[product.id] || {};
+  return INSURERS.filter((i) => map[i.id]).map((i) => ({ ...i, offer: map[i.id] }));
+}
+
+function offerFor(product, insurer) {
+  return INSURER_PRODUCTS[product.id]?.[insurer.id] || null;
+}
+
+// A premium is indicative unless the product has a real rate table AND this
+// insurer either prices at that tariff or publishes its own rate.
+function isIndicative(product, offer) {
+  if (!offer) return true;
+  if (offer.basis === "indicative") return true;
+  return !RATE_TABLE_SOURCE[product.id] && offer.basis !== "published";
+}
+
+const BASIS_LABEL = {
+  published: "Insurer's own listed rate",
+  tariff: "Authority tariff rate",
+  indicative: "Indicative — rate on request",
+};
 
 // ---- Placeholder rate tables, one shape per rate_structure_type ----
 const RATE_TABLES = {
@@ -581,6 +849,7 @@ const RATE_TABLES = {
     // explicitly excluding the RSMDST premium — modeled below by applying the
     // discount only to the normal-rate portion, not rsmdst_rate_per_mille.
     direct_business_discount_pct: 5,
+    min_rate_per_mille: 1.5, // Section 16(1): the lowest tier is itself a floor
     min_premium_flat: 100, // Section 17(1): no policy may charge less than Rs 100 total premium
     stamp_duty_flat: 20, // still unverified against this directive — kept as prior placeholder
     apply_vat: false,
@@ -599,6 +868,7 @@ const RATE_TABLES = {
   // bars increasing/decreasing the sum insured mid-term on an individual policy.
   "pa-individual-1": {
     normal_rate_per_mille: 2.0,
+    min_rate_per_mille: 2.0, // Section 15(1): Rs 2 per 1,000 is a statutory minimum, not a guide
     rsmdst_rate_per_mille: 0.15, // Section 20(2), same as pa-1
     direct_business_discount_pct: 5, // Section 15(2) proviso
     min_premium_flat: 100, // Section 17(1)
@@ -609,8 +879,8 @@ const RATE_TABLES = {
   // Marine Transit Insurance — Marine Insurance Rate Directive 2065 (B.S.),
   // Annex-6: "Minimum Insurance Premium Rate for Marine Insurance" (per hundred
   // sum insured — i.e. a %, not a per-mille). Titled a MINIMUM rate, so the
-  // insurer factor below can only push the effective rate up, never below
-  // this floor. This directive predates the current Insurance Act 2079/2081
+  // this is a floor every insurer shares. This directive predates the current
+  // Insurance Act 2079/2081
   // — treat as a structural reference, not a confirmed current rate.
   "marine-1": {
     category_rates: {
@@ -799,19 +1069,30 @@ function dayBandPremium(dayBands, ageRow, days) {
   return ageRow["148-180"] + lookup(Math.min(days - 180, 180));
 }
 
-function calc(product, factor, v) {
+// `offer` is this insurer's entry from INSURER_PRODUCTS (see there for what
+// each basis means). It is the only insurer-specific input to a premium: on a
+// tariff line it carries no rate at all and every insurer gets the same
+// number, which is what the regulation actually produces.
+function calc(product, offer, v) {
   const rt = RATE_TABLES[product.id];
+  // The insurer's own listed rate, when it has one. A rate listed below a
+  // directive-set statutory minimum can't lawfully be sold at that price, so
+  // the floor wins over the listing.
+  const listedRate =
+    offer && offer.basis === "published" && typeof offer.ratePerMille === "number"
+      ? Math.max(offer.ratePerMille, rt.min_rate_per_mille ?? 0)
+      : null;
   if (product.rateStructureType === "formula") {
     const si = Number(v.sum_insured || 0);
     const cc = Number(v.cubic_capacity_cc || 0);
     const ageSurchargePct = rt.age_surcharge_pct[v.vehicle_age_band] || 0;
-    const effectiveRatePct = rt.base_rate_pct * factor * (1 + ageSurchargePct / 100);
+    const effectiveRatePct = rt.base_rate_pct * (1 + ageSurchargePct / 100);
     const basic = Math.max(si * (effectiveRatePct / 100), rt.min_own_damage_premium);
     const ncdPct = rt.ncd_discount_pct[v.no_claim_discount] || 0;
     const ncdAmt = basic * (ncdPct / 100);
     const dbDiscount = v.direct_business ? (basic - ncdAmt) * (rt.direct_business_discount_pct / 100) : 0;
     const normal = Math.max(basic - ncdAmt - dbDiscount, rt.min_own_damage_premium);
-    // Third-party liability is a NIA-mandated market-wide rate — same for every insurer, not scaled by factor.
+    // Third-party liability is a NIA-mandated market-wide rate — same for every insurer.
     const tp = rt.third_party_flat_by_cc.find((t) => cc <= t.max_cc)?.amount || 0;
     const subtotal = normal + tp;
     const vat = subtotal * 0.13;
@@ -832,14 +1113,14 @@ function calc(product, factor, v) {
     const band = rt.value_bands.find((b) => si <= b.max_value);
     const first20L = Math.min(si, 2000000);
     const remainder = Math.max(si - 2000000, 0);
-    const rawBasic = first20L * ((band.first20L_rate * factor) / 100) + remainder * ((band.remainder_rate * factor) / 100);
+    const rawBasic = first20L * (band.first20L_rate / 100) + remainder * (band.remainder_rate / 100);
     const ageSurcharge = v.vehicle_age_band === "over10" ? rawBasic * (rt.age_surcharge_pct_over10 / 100) : 0;
     const basic = Math.max(rawBasic + ageSurcharge, rt.min_own_damage_premium);
     const ncdPct = rt.ncd_discount_pct[v.no_claim_discount] || 0;
     const ncdAmt = basic * (ncdPct / 100);
     const dbDiscount = v.direct_business ? (basic - ncdAmt) * (rt.direct_business_discount_pct / 100) : 0;
     const normal = Math.max(basic - ncdAmt - dbDiscount, rt.min_own_damage_premium);
-    // Third-party fee is tied to the declared-value band, not scaled by insurer factor — market-wide.
+    // Third-party fee is tied to the declared-value band — market-wide.
     const tp = band.tp;
     const subtotal = normal + tp;
     const vat = subtotal * 0.13;
@@ -857,7 +1138,7 @@ function calc(product, factor, v) {
   }
   if (product.rateStructureType === "lookup_matrix") {
     const base = rt.individual?.[v.sum_insured]?.[v.plan_tier]?.[v.age_band] ?? 0;
-    const premium = r(base * factor);
+    const premium = r(base);
     return { rows: [{ label: "Premium", value: premium }, { label: "Stamp duty", value: rt.stamp_duty_flat }], net: r(premium + rt.stamp_duty_flat) };
   }
   if (product.rateStructureType === "usd_base") {
@@ -865,7 +1146,7 @@ function calc(product, factor, v) {
     const table = planTable.single || planTable[v.cover_type] || planTable.package;
     const lookupBand = v.age_band === "71-79" || v.age_band === "80-84" ? "61-70" : v.age_band;
     const loading = rt.age_loading_multiplier[v.age_band] || 1;
-    const usd = dayBandPremium(rt.day_bands, table[lookupBand], Number(v.days || 0)) * loading * factor;
+    const usd = dayBandPremium(rt.day_bands, table[lookupBand], Number(v.days || 0)) * loading;
     const amount = usd * Number(v.usd_rate || 0);
     const vat = amount * 0.13;
     return {
@@ -878,7 +1159,7 @@ function calc(product, factor, v) {
     };
   }
   if (product.rateStructureType === "eur_base") {
-    const eur = dayBandPremium(rt.day_bands, rt.age_bands[v.age_band], Number(v.days || 0)) * factor;
+    const eur = dayBandPremium(rt.day_bands, rt.age_bands[v.age_band], Number(v.days || 0));
     const amount = eur * Number(v.fx_rate || 0);
     const vat = amount * 0.13;
     return {
@@ -894,18 +1175,19 @@ function calc(product, factor, v) {
     const si = Number(v.sum_insured || 0);
     const tier1 = Math.min(si, rt.tier1_max);
     const tier2 = Math.max(si - rt.tier1_max, 0);
-    // Note: this rate is presented in the directive as a fixed, all-insurer
-    // tariff for standard residential risk — the insurer "factor" is applied
-    // here only so the comparison screen still functions, but per the real
-    // regulation there's likely no legitimate price difference between
-    // insurers for this specific product.
-    const base = tier1 * ((rt.tier1_rate_per_mille * factor) / 1000) + tier2 * ((rt.tier2_rate_per_mille * factor) / 1000);
+    // The directive sets Rs 0.5 per 1,000 for standard residential risk, and
+    // insurers do list their own householder rates around it (Rs 0.5 to Rs
+    // 0.75), so an insurer's listed rate replaces the first tier where it has
+    // one. The upper tier stays on the directive rate — no insurer lists a
+    // separate figure for it.
+    const tier1Rate = listedRate ?? rt.tier1_rate_per_mille;
+    const base = tier1 * (tier1Rate / 1000) + tier2 * (rt.tier2_rate_per_mille / 1000);
     const dbDiscount = v.direct_business ? base * (rt.direct_business_discount_pct / 100) : 0;
     const normal = base - dbDiscount;
     const vat = rt.apply_vat ? normal * 0.13 : 0;
     return {
       rows: [
-        { label: "Premium (all-inclusive tariff rate)", value: r(base) },
+        { label: `Premium (Rs ${tier1Rate}/1,000, all-inclusive)`, value: r(base) },
         ...(v.direct_business ? [{ label: "Direct business discount (5% — only discount NIA permits)", value: r(-dbDiscount) }] : []),
         ...(rt.apply_vat ? [{ label: "VAT (13%)", value: r(vat) }] : []),
         { label: "Stamp duty", value: rt.stamp_duty_flat },
@@ -922,9 +1204,10 @@ function calc(product, factor, v) {
     // own "invoice value + incremental cost" basis for the premium calculation.
     const insuredValue = invoiceValue * 1.1;
     const baseRatePct = rt.category_rates[v.cargo_category]?.[v.risk_tier] ?? 0;
-    // This is a stated MINIMUM rate — factor can only scale it up, never below the floor.
-    const effectiveFactor = Math.max(factor, 1.0);
-    const A = insuredValue * ((baseRatePct * effectiveFactor) / 100);
+    // A stated MINIMUM rate, shared by every insurer. The listings' own marine
+    // figures are a single blended rate on a different basis, so they are not
+    // applied on top of this cargo-category table.
+    const A = insuredValue * (baseRatePct / 100);
     const transitPct = rt.transit_discount_pct[v.transit_mode] ?? 0;
     const B = A * (transitPct / 100);
     const C = A - B;
@@ -954,8 +1237,8 @@ function calc(product, factor, v) {
     // Group-size-tiered products (e.g. pa-1) pick their base rate off the
     // group's headcount instead of a single fixed normal_rate_per_mille.
     const tier = rt.group_tiers?.find((t) => count <= t.max_persons);
-    const baseRatePerMille = tier ? tier.rate_per_mille : rt.normal_rate_per_mille;
-    const effRate = baseRatePerMille * factor * (1 - dbPct / 100);
+    const baseRatePerMille = listedRate ?? (tier ? tier.rate_per_mille : rt.normal_rate_per_mille);
+    const effRate = baseRatePerMille * (1 - dbPct / 100);
     const normal = (totalSI * effRate) / 1000;
     const rsmdst = (totalSI * rt.rsmdst_rate_per_mille) / 1000;
     const subtotal = normal + rsmdst;
@@ -964,7 +1247,7 @@ function calc(product, factor, v) {
     const net = rt.min_premium_flat ? Math.max(preFloorNet, rt.min_premium_flat) : preFloorNet;
     return {
       rows: [
-        { label: tier ? `Normal premium (${count} ${count === 1 ? "person" : "persons"} tier: Rs ${tier.rate_per_mille}/1,000)` : "Normal premium", value: r(normal) },
+        { label: tier && listedRate == null ? `Normal premium (${count} ${count === 1 ? "person" : "persons"} tier: Rs ${tier.rate_per_mille}/1,000)` : `Normal premium (Rs ${baseRatePerMille}/1,000)`, value: r(normal) },
         { label: "RSMDST premium", value: r(rsmdst) },
         ...(rt.apply_vat ? [{ label: "VAT (13%)", value: r(vat) }] : []),
         { label: "Stamp duty", value: rt.stamp_duty_flat },
@@ -1264,7 +1547,7 @@ export default function MobilePreview() {
   // same insurer, same cover) and payment. No document re-upload: those were
   // already verified when the policy was first issued.
   function renewUnchanged() {
-    setQuote(calc(selectedProduct, selectedInsurer.factor, form));
+    setQuote(calc(selectedProduct, offerFor(selectedProduct, selectedInsurer), form));
     setScreen("payment");
   }
 
@@ -1441,7 +1724,12 @@ export default function MobilePreview() {
     doc.setFont("helvetica", "italic");
     doc.setFontSize(8.5);
     doc.setTextColor(...hexRgb(colors.slate));
-    const disclaimer = "This cover note is generated by the Suraksha app at the moment of payment and confirms the cover selected and premium paid. Final policy issuance, endorsement, and claims remain subject to the insurer's own acceptance, underwriting, and terms.";
+    const indicativePricing = isIndicative(selectedProduct, offerFor(selectedProduct, selectedInsurer));
+    const disclaimer =
+      "This cover note is generated by the Suraksha app at the moment of payment and confirms the cover selected and premium paid. Final policy issuance, endorsement, and claims remain subject to the insurer's own acceptance, underwriting, and terms." +
+      (indicativePricing
+        ? " The premium shown is indicative: this insurer prices this cover on request and no public rate table exists for it, so the figure is an estimate rather than a filed rate."
+        : "");
     doc.text(doc.splitTextToSize(disclaimer, pageWidth - marginX * 2), marginX, 280);
 
     doc.save(`${policyNumber || "suraksha-policy"}.pdf`);
@@ -1651,29 +1939,78 @@ export default function MobilePreview() {
             </>
           )}
 
-          {screen === "insurers" && selectedProduct && (
-            <>
-              <p style={{ fontSize: 13, color: colors.slate, margin: "0 0 14px" }}>Compare insurers for this cover.</p>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {INSURERS.map((ins) => {
-                  const preview = calc(selectedProduct, ins.factor, selectedProduct.defaults);
-                  return (
-                    <div
-                      key={ins.id}
-                      onClick={() => chooseInsurer(ins)}
-                      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: colors.card, border: `1px solid ${colors.line}`, borderRadius: 10, padding: 14, cursor: "pointer" }}
-                    >
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: colors.ink }}>{ins.name}</div>
-                        <div style={{ fontSize: 11, color: colors.slate, marginTop: 2 }}>From Rs. {preview.net.toLocaleString()}</div>
+          {screen === "insurers" && selectedProduct && (() => {
+            const offers = insurersFor(selectedProduct);
+            const tableSource = RATE_TABLE_SOURCE[selectedProduct.id];
+            // Rank on price, then on claim settlement where the price ties —
+            // which, on a tariff line, is every row.
+            const ranked = offers
+              .map((ins) => ({ ...ins, preview: calc(selectedProduct, ins.offer, selectedProduct.defaults) }))
+              .sort((a, b) => a.preview.net - b.preview.net || (b.claimRatio ?? -1) - (a.claimRatio ?? -1));
+            const spread = ranked.length ? ranked[ranked.length - 1].preview.net - ranked[0].preview.net : 0;
+            const anyIndicative = ranked.some((x) => isIndicative(selectedProduct, x.offer));
+            return (
+              <>
+                <p style={{ fontSize: 13, color: colors.slate, margin: "0 0 4px" }}>
+                  {offers.length === INSURERS.length
+                    ? `All ${INSURERS.length} licensed non-life insurers sell this cover.`
+                    : offers.length === 1
+                      ? `Only one of the ${INSURERS.length} licensed non-life insurers sells this cover.`
+                      : `${offers.length} of the ${INSURERS.length} licensed non-life insurers sell this cover.`}
+                </p>
+                {offers.length > 1 && (
+                  <p style={{ fontSize: 12, color: colors.slate, margin: "0 0 12px" }}>
+                    {spread > 0
+                      ? `Rs. ${spread.toLocaleString()} between the cheapest and the dearest on the same cover.`
+                      : tableSource
+                        ? `They all quote the same premium: this line is priced off a set tariff (${tableSource}), so there is nothing to compare on price — compare claim settlement instead.`
+                        : "They all quote the same premium, because none of them publishes a rate for it — compare claim settlement instead."}
+                  </p>
+                )}
+                {anyIndicative && (
+                  <div style={{ marginBottom: 12, background: "#fff7e6", border: "1px solid #e8d5a3", borderRadius: 8, padding: "9px 11px" }}>
+                    <p style={{ fontSize: 11.5, color: colors.slate, margin: 0 }}>
+                      Prices marked <strong>indicative</strong> are this app's own placeholder figures, not a quote —
+                      that insurer prices this cover on request.
+                    </p>
+                  </div>
+                )}
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {ranked.map((ins) => {
+                    const indicative = isIndicative(selectedProduct, ins.offer);
+                    return (
+                      <div
+                        key={ins.id}
+                        onClick={() => chooseInsurer(ins)}
+                        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: colors.card, border: `1px solid ${colors.line}`, borderRadius: 10, padding: 14, cursor: "pointer" }}
+                      >
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: colors.ink }}>{ins.name}</div>
+                          <div style={{ fontSize: 11, color: colors.slate, marginTop: 2 }}>
+                            {indicative ? "Indicative " : "From "}Rs. {ins.preview.net.toLocaleString()}
+                            {ins.claimRatio != null && <> · {ins.claimRatio}% of claims settled</>}
+                          </div>
+                          <div style={{ fontSize: 10.5, color: indicative ? "#9a6b1f" : colors.moss, marginTop: 3 }}>
+                            {BASIS_LABEL[ins.offer.basis]}
+                            {ins.offer.basis === "published" && typeof ins.offer.ratePerMille === "number" && ` — Rs ${ins.offer.ratePerMille}/1,000`}
+                          </div>
+                          {ins.offer.note && (
+                            <div style={{ fontSize: 10.5, color: colors.slate, marginTop: 3, fontStyle: "italic" }}>{ins.offer.note}</div>
+                          )}
+                        </div>
+                        <ChevronRight size={18} color={colors.slate} style={{ flexShrink: 0 }} />
                       </div>
-                      <ChevronRight size={18} color={colors.slate} />
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
+                    );
+                  })}
+                </div>
+                <p style={{ fontSize: 10.5, color: colors.slate, margin: "12px 0 0", lineHeight: 1.5 }}>
+                  Which insurers sell what, their listed rates and their claim ratios come from one comparison-site
+                  listing (BFIS Compare, read 18 Sep 2026), which states its own premium figures are illustrative.
+                  None of it has been confirmed against the insurers' own filings.
+                </p>
+              </>
+            );
+          })()}
 
           {screen === "product" && selectedProduct && (
             <>
@@ -1831,11 +2168,25 @@ export default function MobilePreview() {
                 );
               })}
 
-              <button style={buttonStyle} onClick={() => setQuote(calc(selectedProduct, selectedInsurer.factor, form))}>Get quote</button>
+              <button style={buttonStyle} onClick={() => setQuote(calc(selectedProduct, offerFor(selectedProduct, selectedInsurer), form))}>Get quote</button>
 
               {quote && (
                 <div style={{ marginTop: 16, borderTop: `1px solid ${colors.line}`, paddingTop: 12 }}>
                   <p style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Estimated premium</p>
+                  {isIndicative(selectedProduct, offerFor(selectedProduct, selectedInsurer)) ? (
+                    <div style={{ marginBottom: 10, background: "#fff7e6", border: "1px solid #e8d5a3", borderRadius: 8, padding: "9px 11px" }}>
+                      <p style={{ fontSize: 11.5, color: colors.slate, margin: 0 }}>
+                        <strong>Indicative only.</strong> {selectedInsurer.name} prices this cover on request, and no public
+                        rate table exists for it, so the figures below are this app's own placeholders — not a quote.
+                      </p>
+                    </div>
+                  ) : (
+                    RATE_TABLE_SOURCE[selectedProduct.id] && (
+                      <p style={{ fontSize: 11, color: colors.slate, margin: "0 0 10px" }}>
+                        Rated on {RATE_TABLE_SOURCE[selectedProduct.id]}.
+                      </p>
+                    )
+                  )}
                   {quote.rows.map((row, i) => (
                     <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 13 }}>
                       <span>{row.label}</span>
