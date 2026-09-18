@@ -153,6 +153,7 @@ export const RATE_TABLES = {
     // explicitly excluding the RSMDST premium — modeled below by applying the
     // discount only to the normal-rate portion, not rsmdst_rate_per_mille.
     direct_business_discount_pct: 5,
+    min_rate_per_mille: 1.5, // Section 16(1): the lowest tier is itself a floor
     min_premium_flat: 100, // Section 17(1): no policy may charge less than Rs 100 total premium
     stamp_duty_flat: 20, // still unverified against this directive — kept as prior placeholder
     apply_vat: false,
@@ -171,6 +172,7 @@ export const RATE_TABLES = {
   // bars increasing/decreasing the sum insured mid-term on an individual policy.
   "pa-individual-1": {
     normal_rate_per_mille: 2.0,
+    min_rate_per_mille: 2.0, // Section 15(1): Rs 2 per 1,000 is a statutory minimum, not a guide
     rsmdst_rate_per_mille: 0.15, // Section 20(2), same as pa-1
     direct_business_discount_pct: 5, // Section 15(2) proviso
     min_premium_flat: 100, // Section 17(1)
@@ -180,10 +182,10 @@ export const RATE_TABLES = {
   "property-commercial-1": { normal_rate_per_mille: 2.0, rsmdst_rate_per_mille: 0.3, direct_business_discount_pct: 5, stamp_duty_flat: 100, apply_vat: true },
   // Marine Transit Insurance — Marine Insurance Rate Directive 2065 (B.S.),
   // Annex-6: "Minimum Insurance Premium Rate for Marine Insurance" (per hundred
-  // sum insured — i.e. a %, not a per-mille). Titled a MINIMUM rate, so the
-  // insurer factor below can only push the effective rate up, never below
-  // this floor. This directive predates the current Insurance Act 2079/2081
-  // — treat as a structural reference, not a confirmed current rate.
+  // sum insured — i.e. a %, not a per-mille). Titled a MINIMUM rate, and it is
+  // a floor every insurer shares. This directive predates the current
+  // Insurance Act 2079/2081 — treat as a structural reference, not a confirmed
+  // current rate.
   "marine-1": {
     category_rates: {
       automobiles: { all_risk: 0.26, basic_risk: 0.14, minimum_risk: 0.06 },
@@ -215,7 +217,6 @@ export const RATE_TABLES = {
     stamp_duty_flat: 20,
   },
   "aviation-1": { normal_rate_per_mille: 5.0, rsmdst_rate_per_mille: 0.6, direct_business_discount_pct: 10, stamp_duty_flat: 100, apply_vat: true },
-  "agri-1": { normal_rate_per_mille: 15, rsmdst_rate_per_mille: 0, direct_business_discount_pct: 10, stamp_duty_flat: 50, apply_vat: true },
   "contractors-ar-1": { normal_rate_per_mille: 4.0, rsmdst_rate_per_mille: 0.4, direct_business_discount_pct: 10, stamp_duty_flat: 100, apply_vat: true },
   "erection-ar-1": { normal_rate_per_mille: 4.0, rsmdst_rate_per_mille: 0.4, direct_business_discount_pct: 10, stamp_duty_flat: 100, apply_vat: true },
   "cash-1": { normal_rate_per_mille: 3.0, rsmdst_rate_per_mille: 0.3, direct_business_discount_pct: 10, stamp_duty_flat: 50, apply_vat: true },

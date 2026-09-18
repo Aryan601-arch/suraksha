@@ -1,4 +1,6 @@
 import { colors, inputStyle, buttonStyle } from "../theme.js";
+import { RATE_TABLE_SOURCE } from "../data/insurerProducts.js";
+import { isIndicative, offerFor } from "../lib/offers.js";
 import { npr, isHiddenField } from "../lib/format.js";
 import { termLabel } from "../lib/policyTerm.js";
 import CoveragePanel from "./CoveragePanel.jsx";
@@ -8,9 +10,11 @@ import CoveragePanel from "./CoveragePanel.jsx";
 const DEFAULT_INVOICE_BY_CURRENCY = { NPR: 1000000, USD: 10000, EUR: 10000, INR: 800000, GBP: 8000, CNY: 70000 };
 
 export default function ProductScreen({
-  product, form, setForm, quote, onQuote, rateInfo, onFetchRate,
+  product, insurer, form, setForm, quote, onQuote, rateInfo, onFetchRate,
   coverage, coverageOpen, setCoverageOpen, renewalContext, onContinue, term,
 }) {
+  const indicative = isIndicative(product, offerFor(product, insurer));
+  const rateSource = RATE_TABLE_SOURCE[product.id];
   return (
     <>
       {renewalContext && (
@@ -91,6 +95,20 @@ export default function ProductScreen({
       {quote && (
         <div style={{ marginTop: 16, borderTop: `1px solid ${colors.line}`, paddingTop: 12 }}>
           <p style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Estimated premium</p>
+          {indicative ? (
+            <div style={{ marginBottom: 10, background: "#fff7e6", border: "1px solid #e8d5a3", borderRadius: 8, padding: "9px 11px" }}>
+              <p style={{ fontSize: 11.5, color: colors.slate, margin: 0 }}>
+                <strong>Indicative only.</strong> {insurer?.name} prices this cover on request, and no public
+                rate table exists for it, so the figures below are this app's own placeholders — not a quote.
+              </p>
+            </div>
+          ) : (
+            rateSource && (
+              <p style={{ fontSize: 11, color: colors.slate, margin: "0 0 10px" }}>
+                Rated on {rateSource}.
+              </p>
+            )
+          )}
           {quote.rows.map((row, i) => (
             <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 13 }}>
               <span>{row.label}</span>

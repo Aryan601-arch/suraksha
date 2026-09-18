@@ -271,18 +271,6 @@ export const PRODUCTS = [
     docsRequired: [{ key: "citizenship", label: "Citizenship document" }],
   },
   {
-    id: "agri-1",
-    category: "agri",
-    name: "Agri Insurance",
-    rateStructureType: "per_mille",
-    fields: [
-      { key: "sum_insured", label: "Sum insured (Rs.)", type: "number" },
-      { key: "direct_business", label: "Direct business", type: "boolean" },
-    ],
-    defaults: { sum_insured: 300000, direct_business: false },
-    docsRequired: [{ key: "citizenship", label: "Citizenship document" }],
-  },
-  {
     id: "contractors-ar-1",
     category: "business",
     name: "Contractors' All Risk Insurance",

@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { calc, dayBandPremium } from "./calc.js";
+import { insurersFor, offerFor } from "./offers.js";
 import { PRODUCTS } from "../data/products.js";
+import { INSURERS } from "../data/insurers.js";
 import { RATE_TABLES } from "../data/rateTables.js";
 
 // The premium calculator is the one part of this app where being wrong costs
@@ -10,9 +12,16 @@ import { RATE_TABLES } from "../data/rateTables.js";
 // instead of quietly rewriting what "correct" means.
 
 const product = (id) => PRODUCTS.find((p) => p.id === id);
-const quoteFor = (id, overrides = {}, factor = 1) => {
+const insurer = (id) => INSURERS.find((i) => i.id === id);
+// An offer is an insurer's entry for a product. Passing none means the tariff
+// case: no insurer-specific rate, which is what most of these lines are.
+const quoteFor = (id, overrides = {}, offer = null) => {
   const p = product(id);
-  return calc(p, factor, { ...p.defaults, ...overrides });
+  return calc(p, offer, { ...p.defaults, ...overrides });
+};
+const quoteFrom = (productId, insurerId, overrides = {}) => {
+  const p = product(productId);
+  return calc(p, offerFor(p, insurer(insurerId)), { ...p.defaults, ...overrides });
 };
 const row = (quote, fragment) => quote.rows.find((r) => r.label.includes(fragment));
 
@@ -58,6 +67,22 @@ describe("per_mille products", () => {
     expect(row(small, "Normal premium").value).toBe(25 * 100000 * 2.0 / 1000);
     expect(row(large, "Normal premium").value).toBe(101 * 100000 * 1.5 / 1000);
   });
+
+  it("uses an insurer's own listed rate in place of the table's base rate", () => {
+    // Nepal Insurance lists Rs 15 per 1,000 for group medical; the table's own
+    // placeholder is Rs 10. 10 people x 3,00,000 = 30,00,000 at 15 per mille.
+    const q = quoteFrom("group-medical-1", "nepal-insurance");
+    expect(row(q, "Normal premium").value).toBe(45000);
+    expect(row(q, "Normal premium").label).toContain("Rs 15/1,000");
+  });
+
+  it("will not let a listed rate undercut a statutory minimum", () => {
+    // Three insurers list Rs 1 per 1,000 for personal accident, below the
+    // Directive 2078 Sec. 15(1) floor of Rs 2. A rate that can't lawfully be
+    // sold must not be quoted, so the floor wins over the listing.
+    const belowFloor = { basis: "published", ratePerMille: 1 };
+    expect(quoteFor("pa-individual-1", {}, belowFloor).net).toBe(quoteFor("pa-individual-1").net);
+  });
 });
 
 describe("motor", () => {
@@ -72,12 +97,12 @@ describe("motor", () => {
     expect(q.net).toBeCloseTo(3825 + 1500 + (3825 + 1500) * 0.13 + 100, 2);
   });
 
-  it("does not scale the third-party premium by the insurer factor", () => {
-    // Third-party is a market-wide mandated rate: every insurer charges it.
-    const cheap = quoteFor("motor-1", {}, 0.93);
-    const dear = quoteFor("motor-1", {}, 1.07);
-    expect(row(cheap, "Third-party").value).toBe(row(dear, "Third-party").value);
-    expect(row(cheap, "Own-damage premium").value).toBeLessThan(row(dear, "Own-damage premium").value);
+  it("quotes every insurer the same price on a tariff line", () => {
+    // Motor is tariffed: the Authority sets the rate, so an identical premium
+    // across all 14 insurers is the correct answer, not a missing feature.
+    const nets = insurersFor(product("motor-1")).map((ins) => quoteFrom("motor-1", ins.id).net);
+    expect(nets).toHaveLength(INSURERS.length);
+    expect(new Set(nets).size).toBe(1);
   });
 
   it("charges the over-10-years surcharge on a motorcycle", () => {
@@ -145,6 +170,14 @@ describe("travel day bands", () => {
     const q = quoteFor("schengen-1", { days: 10, age_band: "5-40", fx_rate: 150 });
     expect(q.net).toBeCloseTo(20.6 * 150 * 1.13 + 50, 2);
   });
+
+  it("does not let a travel insurer's listing move a day-band premium", () => {
+    // The day-band tables are Oriental's filed rates, and no other insurer
+    // publishes one, so nothing in an offer can shift these figures.
+    const base = { days: 10, plan: "asian", cover_type: "package", age_band: "5-40", usd_rate: 138 };
+    const nets = insurersFor(product("travel-1")).map((ins) => quoteFrom("travel-1", ins.id, base).net);
+    expect(new Set(nets).size).toBe(1);
+  });
 });
 
 describe("marine cargo", () => {
@@ -160,12 +193,12 @@ describe("marine cargo", () => {
     expect(row(q, "Sum insured").value).toBeCloseTo(1100000, 2);
   });
 
-  it("clamps the insurer factor at 1.0, because the directive rate is a minimum", () => {
-    const floor = quoteFor("marine-1", {}, 1.0);
-    const cheaper = quoteFor("marine-1", {}, 0.93);
-    const dearer = quoteFor("marine-1", {}, 1.07);
-    expect(cheaper.net).toBe(floor.net);
-    expect(dearer.net).toBeGreaterThan(floor.net);
+  it("holds every insurer to the directive's cargo-category minimum", () => {
+    // Annex-6 is a floor the whole market shares, and the listings' own marine
+    // figures are on a different basis, so no insurer prices away from it.
+    const nets = insurersFor(product("marine-1")).map((ins) => quoteFrom("marine-1", ins.id).net);
+    expect(nets).toHaveLength(INSURERS.length);
+    expect(new Set(nets).size).toBe(1);
   });
 
   it("discounts the base premium by transit mode", () => {
@@ -184,6 +217,21 @@ describe("property and matrix products", () => {
     expect(q.net).toBeCloseTo(20000 * 1.13 + 100, 2);
   });
 
+  it("puts an insurer's listed householder rate on the first tier only", () => {
+    // Nepal Insurance lists Rs 0.75 per 1,000 against the directive's Rs 0.5.
+    // The upper tier has no insurer-specific figure, so it stays on the table.
+    const q = quoteFrom("property-1", "nepal-insurance", { sum_insured: 20000000 });
+    expect(row(q, "Premium").value).toBe(10000000 * 0.00075 + 10000000 * 0.0015);
+    expect(row(q, "Premium").label).toContain("Rs 0.75/1,000");
+  });
+
+  it("shows a real price spread where insurers publish their own fire rates", () => {
+    // Commercial fire is the widest genuine gap in the app: Rs 0.4 to Rs 1.0
+    // per 1,000, on identical cover.
+    const nets = insurersFor(product("property-commercial-1")).map((ins) => quoteFrom("property-commercial-1", ins.id).net);
+    expect(Math.max(...nets)).toBeGreaterThan(Math.min(...nets) * 2);
+  });
+
   it("allows only the 5% direct-business discount on a home policy", () => {
     const q = quoteFor("property-1", { sum_insured: 20000000, direct_business: true });
     expect(row(q, "Direct business discount").value).toBe(-1000);
@@ -197,18 +245,24 @@ describe("property and matrix products", () => {
 });
 
 describe("every product quotes", () => {
-  it("returns a positive net premium on its own defaults, for any insurer factor", () => {
+  it("returns a positive net premium from every insurer that sells it", () => {
     // A product with no rate table, or one whose shape doesn't match its
     // rateStructureType, silently returns zero — which looks like a free
     // policy on the comparison screen rather than an error.
     PRODUCTS.forEach((p) => {
-      [0.93, 1.0, 1.07].forEach((factor) => {
-        const q = calc(p, factor, p.defaults);
-        expect(q.net, `${p.id} at factor ${factor}`).toBeGreaterThan(0);
+      insurersFor(p).forEach((ins) => {
+        const q = calc(p, ins.offer, p.defaults);
+        expect(q.net, `${p.id} from ${ins.id}`).toBeGreaterThan(0);
         expect(q.rows.length, `${p.id} has no breakdown`).toBeGreaterThan(0);
         q.rows.forEach((r) => expect(Number.isFinite(r.value), `${p.id}: ${r.label}`).toBe(true));
       });
     });
+  });
+
+  it("still quotes when no offer is known at all", () => {
+    // A policy stored before an insurer stopped selling a cover comes back for
+    // renewal with no offer behind it; the renewal must still price.
+    PRODUCTS.forEach((p) => expect(calc(p, null, p.defaults).net, p.id).toBeGreaterThan(0));
   });
 
   it("has a rate table for every product in the catalogue", () => {

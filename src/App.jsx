@@ -3,6 +3,7 @@ import { ArrowLeft } from "lucide-react";
 import { colors } from "./theme.js";
 import { PRODUCTS } from "./data/products.js";
 import { INSURERS } from "./data/insurers.js";
+import { offerFor } from "./lib/offers.js";
 import { COVERAGE_SCHEDULES } from "./data/coverageSchedules.js";
 import { calc, nrbRateFieldKey } from "./lib/calc.js";
 import { fetchNrbRate } from "./lib/nrb.js";
@@ -186,7 +187,7 @@ export default function MobilePreview() {
   // insurer, same cover) and payment. No document re-upload: those were already
   // submitted when the policy was first issued.
   function renewUnchanged() {
-    setQuote(calc(selectedProduct, selectedInsurer.factor, form));
+    setQuote(calc(selectedProduct, offerFor(selectedProduct, selectedInsurer), form));
     setScreen("payment");
   }
 
@@ -316,10 +317,11 @@ export default function MobilePreview() {
           {screen === "product" && selectedProduct && (
             <ProductScreen
               product={selectedProduct}
+              insurer={selectedInsurer}
               form={form}
               setForm={setForm}
               quote={quote}
-              onQuote={() => setQuote(calc(selectedProduct, selectedInsurer.factor, form))}
+              onQuote={() => setQuote(calc(selectedProduct, offerFor(selectedProduct, selectedInsurer), form))}
               rateInfo={rateInfo}
               onFetchRate={loadNrbRate}
               coverage={coverage}
