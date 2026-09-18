@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Car, HeartPulse, Plane, ShieldCheck, Home, ChevronRight, Check, ArrowLeft, Wheat, Ship, PlaneTakeoff, Briefcase } from "lucide-react";
+import { Car, HeartPulse, Plane, ShieldCheck, Home, ChevronRight, Check, ArrowLeft, Ship, PlaneTakeoff, Briefcase } from "lucide-react";
 import { jsPDF } from "jspdf";
 
 const colors = {
@@ -25,7 +25,6 @@ const CATEGORIES = [
   { slug: "travel", label: "Travel", Icon: Plane },
   { slug: "personal_accident", label: "Accident", Icon: ShieldCheck },
   { slug: "property", label: "Property", Icon: Home },
-  { slug: "agri", label: "Agri", Icon: Wheat },
   { slug: "marine", label: "Marine", Icon: Ship },
   { slug: "aviation", label: "Aviation", Icon: PlaneTakeoff },
   { slug: "business", label: "Business", Icon: Briefcase },
@@ -304,18 +303,6 @@ const PRODUCTS = [
     docsRequired: [{ key: "citizenship", label: "Citizenship document" }],
   },
   {
-    id: "agri-1",
-    category: "agri",
-    name: "Agri Insurance",
-    rateStructureType: "per_mille",
-    fields: [
-      { key: "sum_insured", label: "Sum insured (Rs.)", type: "number" },
-      { key: "direct_business", label: "Direct business", type: "boolean" },
-    ],
-    defaults: { sum_insured: 300000, direct_business: false },
-    docsRequired: [{ key: "citizenship", label: "Citizenship document" }],
-  },
-  {
     id: "contractors-ar-1",
     category: "business",
     name: "Contractors' All Risk Insurance",
@@ -584,15 +571,6 @@ const INSURER_PRODUCTS = {
     neco: { basis: "indicative" },
     nlg: { basis: "indicative" },
   },
-
-  // --- Agri ----------------------------------------------------------------
-  // Oriental and National do not write agriculture. The listed rates for the
-  // rest are irreconcilable — Rs 1.25 per 1,000 against Rs 50 per 1,000 for
-  // the same description — so none is applied and all stay indicative.
-  "agri-1": offeredBy(
-    ALL_INSURER_IDS.filter((id) => id !== "oriental" && id !== "national"),
-    { basis: "indicative", note: "Listed agriculture rates span Rs 1.25 to Rs 50 per 1,000 across insurers, which cannot all be the same basis, so none is used." }
-  ),
 
   // --- Business ------------------------------------------------------------
   // Contractors' and Erection All Risk are both written off the same
@@ -913,7 +891,6 @@ const RATE_TABLES = {
     stamp_duty_flat: 20,
   },
   "aviation-1": { normal_rate_per_mille: 5.0, rsmdst_rate_per_mille: 0.6, direct_business_discount_pct: 10, stamp_duty_flat: 100, apply_vat: true },
-  "agri-1": { normal_rate_per_mille: 15, rsmdst_rate_per_mille: 0, direct_business_discount_pct: 10, stamp_duty_flat: 50, apply_vat: true },
   "contractors-ar-1": { normal_rate_per_mille: 4.0, rsmdst_rate_per_mille: 0.4, direct_business_discount_pct: 10, stamp_duty_flat: 100, apply_vat: true },
   "erection-ar-1": { normal_rate_per_mille: 4.0, rsmdst_rate_per_mille: 0.4, direct_business_discount_pct: 10, stamp_duty_flat: 100, apply_vat: true },
   "cash-1": { normal_rate_per_mille: 3.0, rsmdst_rate_per_mille: 0.3, direct_business_discount_pct: 10, stamp_duty_flat: 50, apply_vat: true },

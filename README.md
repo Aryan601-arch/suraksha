@@ -1,7 +1,7 @@
 # Suraksha — Insurance Marketplace (Nepal)
 
 A front-end UI prototype of an insurance comparison/aggregator app for Nepal
-— motor, health, travel, property, marine, aviation, agri and business
+— motor, health, travel, property, marine, aviation and business
 cover, compared across the 14 non-life insurers currently licensed by the
 Nepal Insurance Authority.
 
