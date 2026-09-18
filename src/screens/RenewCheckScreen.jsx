@@ -1,6 +1,8 @@
 import { colors, buttonStyle, secondaryButtonStyle } from "../theme.js";
 import { formatFieldValue, isHiddenField, npr } from "../lib/format.js";
 import { formatDate, policyStatus, termLabel } from "../lib/policyTerm.js";
+import { isNomineeComplete, nomineeRelationshipLabel } from "../lib/nominee.js";
+import NomineeFields from "./NomineeFields.jsx";
 
 function Row({ label, value, strong = true }) {
   return (
@@ -11,9 +13,10 @@ function Row({ label, value, strong = true }) {
   );
 }
 
-export default function RenewCheckScreen({ product, insurer, form, insuredName, renewalContext, onRenewUnchanged, onRenewWithChanges }) {
+export default function RenewCheckScreen({ product, insurer, form, insuredName, nominee, onNomineeChange, renewalContext, onRenewUnchanged, onRenewWithChanges }) {
   const priorStatus = policyStatus(renewalContext.priorTerm);
   const { gapDays } = renewalContext.renewal;
+  const nomineeOnFile = isNomineeComplete(nominee);
 
   return (
     <>
@@ -26,6 +29,13 @@ export default function RenewCheckScreen({ product, insurer, form, insuredName, 
         <Row label="Insurer" value={insurer.name} />
         <Row label="Product" value={product.name} />
         <Row label="Policyholder" value={insuredName} />
+        {nomineeOnFile && (
+          <>
+            <Row label="Nominee" value={nominee.name} />
+            <Row label="Relationship" value={nomineeRelationshipLabel(nominee)} />
+            <Row label="Nominee's contact" value={nominee.contact} />
+          </>
+        )}
         <Row
           label="Purchased on"
           value={new Date(renewalContext.purchaseDate).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
@@ -67,8 +77,19 @@ export default function RenewCheckScreen({ product, insurer, form, insuredName, 
         )}
       </div>
 
-      <button style={buttonStyle} onClick={onRenewUnchanged}>Nothing's changed — renew</button>
-      <button style={{ ...secondaryButtonStyle, marginTop: 8 }} onClick={onRenewWithChanges}>
+      {/* Policies bought before the nominee field existed have none on file, so
+          the renewal is where one gets collected rather than carried forward. */}
+      {!nomineeOnFile && (
+        <div style={{ marginBottom: 16, background: "#fff7e6", border: "1px solid #e8d5a3", borderRadius: 10, padding: "12px 14px" }}>
+          <p style={{ fontSize: 12.5, fontWeight: 700, color: colors.ink, margin: "0 0 2px" }}>Add a nominee before renewing</p>
+          <p style={{ fontSize: 11.5, color: colors.slate, margin: "0 0 10px" }}>There's no nominee on file for this policy.</p>
+          <NomineeFields nominee={nominee} onChange={onNomineeChange} />
+        </div>
+      )}
+      <button style={{ ...buttonStyle, opacity: nomineeOnFile ? 1 : 0.5 }} disabled={!nomineeOnFile} onClick={onRenewUnchanged}>
+        Nothing's changed — renew
+      </button>
+      <button style={{ ...secondaryButtonStyle, marginTop: 8, opacity: nomineeOnFile ? 1 : 0.5 }} disabled={!nomineeOnFile} onClick={onRenewWithChanges}>
         Something's changed — update details
       </button>
     </>

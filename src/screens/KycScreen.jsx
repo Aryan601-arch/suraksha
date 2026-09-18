@@ -2,11 +2,13 @@ import { useRef } from "react";
 import { Check, Paperclip, X } from "lucide-react";
 import { colors, inputStyle, buttonStyle } from "../theme.js";
 import { DOC_ACCEPT_ATTR, formatBytes, isAttached, validateDocFile } from "../lib/documents.js";
+import { isNomineeComplete } from "../lib/nominee.js";
+import NomineeFields from "./NomineeFields.jsx";
 
-export default function KycScreen({ product, docs, docErrors, insuredName, onNameChange, onAttach, onRemove, onError, onSubmit }) {
+export default function KycScreen({ product, docs, docErrors, insuredName, nominee, onNameChange, onNomineeChange, onAttach, onRemove, onError, onSubmit }) {
   const inputs = useRef({});
   const allAttached = product.docsRequired.every((d) => isAttached(docs[d.key]));
-  const canSubmit = allAttached && insuredName.trim();
+  const canSubmit = allAttached && insuredName.trim() && isNomineeComplete(nominee);
 
   function handleFile(key, fileList) {
     const file = fileList && fileList[0];
@@ -21,12 +23,19 @@ export default function KycScreen({ product, docs, docErrors, insuredName, onNam
 
   return (
     <>
-      <p style={{ fontSize: 13, color: colors.slate, margin: "0 0 14px" }}>Attach these documents before you can pay.</p>
+      <p style={{ fontSize: 13, color: colors.slate, margin: "0 0 14px" }}>A few proposal details, then the documents to attach.</p>
       <div style={{ marginBottom: 14 }}>
         <label style={{ fontSize: 12, fontWeight: 600, color: colors.slate, display: "block", marginBottom: 4 }}>Full name (as it appears on your documents)</label>
         <input type="text" value={insuredName} onChange={(e) => onNameChange(e.target.value)} style={inputStyle} placeholder="e.g. Aarav Sharma" />
       </div>
 
+      <div style={{ borderTop: `1px solid ${colors.line}`, paddingTop: 12 }}>
+        <p style={{ fontSize: 13, fontWeight: 700, color: colors.ink, margin: "0 0 2px" }}>Nominee</p>
+        <p style={{ fontSize: 11.5, color: colors.slate, margin: "0 0 10px" }}>Who the insurer pays a claim to if it can't be paid to you.</p>
+        <NomineeFields nominee={nominee} onChange={onNomineeChange} />
+      </div>
+
+      <p style={{ fontSize: 13, fontWeight: 700, color: colors.ink, margin: "2px 0 0", borderTop: `1px solid ${colors.line}`, paddingTop: 12 }}>Documents</p>
       <div style={{ display: "flex", flexDirection: "column" }}>
         {product.docsRequired.map((doc) => {
           const attachment = docs[doc.key];

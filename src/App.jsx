@@ -7,6 +7,7 @@ import { COVERAGE_SCHEDULES } from "./data/coverageSchedules.js";
 import { calc, nrbRateFieldKey } from "./lib/calc.js";
 import { fetchNrbRate } from "./lib/nrb.js";
 import { docsForStorage } from "./lib/documents.js";
+import { EMPTY_NOMINEE } from "./lib/nominee.js";
 import { listPolicyRecords, loadPolicyRecord, savePolicyRecord } from "./lib/policyStore.js";
 import { policyStatus, policyTerm, renewalStart } from "./lib/policyTerm.js";
 import { downloadPolicyPdf } from "./lib/pdf.js";
@@ -43,6 +44,7 @@ export default function MobilePreview() {
   const [docs, setDocs] = useState({});
   const [docErrors, setDocErrors] = useState({});
   const [insuredName, setInsuredName] = useState("");
+  const [nominee, setNominee] = useState(EMPTY_NOMINEE);
   const [paymentStatus, setPaymentStatus] = useState(null); // null | "processing" | "success"
   const [policyNumber, setPolicyNumber] = useState(null);
   const [storeWarning, setStoreWarning] = useState(null);
@@ -101,6 +103,7 @@ export default function MobilePreview() {
     setDocs({});
     setDocErrors({});
     setInsuredName("");
+    setNominee(EMPTY_NOMINEE);
     setPaymentStatus(null);
     setPolicyNumber(null);
     setStoreWarning(null);
@@ -135,6 +138,7 @@ export default function MobilePreview() {
     setSelectedInsurer(insurer);
     setForm(record.form);
     setInsuredName(record.insuredName);
+    setNominee({ ...EMPTY_NOMINEE, ...(record.nominee || {}) });
     setDocs(record.docs || {});
     setDocErrors({});
     setQuote(null);
@@ -200,6 +204,7 @@ export default function MobilePreview() {
         insurerId: selectedInsurer.id,
         form,
         insuredName,
+        nominee,
         docs: docsForStorage(docs),
         quoteRows: quote.rows,
         quoteNet: quote.net,
@@ -290,6 +295,8 @@ export default function MobilePreview() {
               insurer={selectedInsurer}
               form={form}
               insuredName={insuredName}
+              nominee={nominee}
+              onNomineeChange={setNominee}
               renewalContext={{ ...renewalContext, newTerm: term }}
               onRenewUnchanged={renewUnchanged}
               onRenewWithChanges={renewWithChanges}
@@ -324,7 +331,9 @@ export default function MobilePreview() {
               docs={docs}
               docErrors={docErrors}
               insuredName={insuredName}
+              nominee={nominee}
               onNameChange={setInsuredName}
+              onNomineeChange={setNominee}
               onAttach={(key, attachment) => {
                 setDocs((d) => ({ ...d, [key]: attachment }));
                 setDocErrors((e) => ({ ...e, [key]: null }));
@@ -354,6 +363,7 @@ export default function MobilePreview() {
                   form,
                   quote,
                   insuredName,
+                  nominee,
                   term,
                   renewalContext,
                   docs,

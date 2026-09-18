@@ -3,12 +3,13 @@ import { colors, hexRgb } from "../theme.js";
 import { formatFieldValue, isHiddenField } from "./format.js";
 import { COVERAGE_SCHEDULES } from "../data/coverageSchedules.js";
 import { formatDate, termLabel, TERM_SINGLE_TRANSIT } from "./policyTerm.js";
+import { nomineeRelationshipLabel } from "./nominee.js";
 
 // Builds a cover-note PDF entirely client-side — there's no backend to generate
 // or store this on, so it is generated fresh in the browser from the same
 // product/form/quote state already on screen, and handed to the customer as an
 // immediate download.
-export function downloadPolicyPdf({ policyNumber, insurer, product, form, quote, insuredName, term, renewalContext, docs }) {
+export function downloadPolicyPdf({ policyNumber, insurer, product, form, quote, insuredName, nominee, term, renewalContext, docs }) {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
   const marginX = 18;
@@ -76,6 +77,19 @@ export function downloadPolicyPdf({ policyNumber, insurer, product, form, quote,
     if (isHiddenField(field, form)) return;
     doc.text(`${field.label}: ${formatFieldValue(field, form[field.key])}`, marginX, (y += 6));
   });
+
+  if (y > 240) { doc.addPage(); y = 20; }
+  y += 2;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11.5);
+  doc.setTextColor(...hexRgb(colors.moss));
+  doc.text("Nominee", marginX, (y += 6));
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.setTextColor(...hexRgb(colors.ink));
+  doc.text(`Name: ${(nominee?.name || "").trim() || "\u2014"}`, marginX, (y += 6));
+  doc.text(`Relationship to the insured: ${nomineeRelationshipLabel(nominee) || "\u2014"}`, marginX, (y += 6));
+  doc.text(`Contact: ${(nominee?.contact || "").trim() || "\u2014"}`, marginX, (y += 6));
 
   y += 2;
   doc.setFont("helvetica", "bold");
